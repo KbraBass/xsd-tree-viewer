@@ -5,9 +5,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-Nothing yet. Add entries here as you go; the release workflow renames this
-heading to the version being released and uses the section as the release
-notes.
+Add entries here as you go; the release workflow renames this heading to the
+version being released and uses the section as the release notes.
+
+### Added
+- CI on every push and pull request: typecheck, bundle, unit tests, and a
+  packaging step (`dist/` is git-ignored, so a tree that compiles but cannot be
+  packaged would otherwise only fail at release time). A second job installs
+  playwright and runs the webview keyboard check.
+- A `Release` workflow that cuts a release entirely on GitHub: it bumps the
+  version, packages the `.vsix`, tags, and publishes a GitHub Release with the
+  `.vsix` attached, so it is downloadable without a local build. Takes a semver
+  bump or an exact version, refuses to run if the tag exists, and has a
+  `dry_run` mode. Release notes come from this section. The Marketplace publish
+  is the final step and skips itself until a `VSCE_PAT` secret exists.
+
+### Fixed
+- `npm test` resolved `out/test/` as a module on Node 22 and failed with
+  `MODULE_NOT_FOUND`; only newer versions accept the directory form. It now
+  passes the test files explicitly.
+- The `.vsix` no longer ships `.gitignore` or source maps. A lone `*` does not
+  cross `/` in a `.vscodeignore` glob, so `*.map` never matched
+  `dist/webview.js.map`; the package drops from roughly 81 KB to 44 KB.
 
 ## [0.2.0] - 2026-09-09
 
