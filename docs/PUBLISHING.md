@@ -42,7 +42,7 @@ The workflow's last step publishes to the Marketplace, and **skips itself while
 the `VSCE_PAT` secret is absent** — so releases work from day one and start
 publishing the moment you opt in. To enable it:
 
-1. Set `publisher` in `package.json` to a real publisher ID (see below).
+1. Create the `KbraBass` publisher on the Marketplace (see below).
 2. Add the PAT as a repository secret named `VSCE_PAT`
    (**Settings → Secrets and variables → Actions**).
 
@@ -52,40 +52,31 @@ Nothing else changes; the next release publishes.
 
 Two things in `package.json` must be settled first.
 
-### `publisher` is still a placeholder
+### The publisher must exist on the Marketplace
+
+`package.json` declares:
 
 ```json
-"publisher": "xsd-tree-viewer"
+"publisher": "KbraBass"
 ```
 
-This must be the ID of a **real Marketplace publisher** you control, not the
-extension name. `vsce publish` fails otherwise. To create one:
+The extension's Marketplace identity is `<publisher>.<name>`, i.e.
+`KbraBass.xsd-tree-viewer`. That publisher ID has to exist and be owned by the
+account whose token you publish with, or `vsce publish` fails. To create it:
 
 1. Sign in to <https://marketplace.visualstudio.com/manage> with a Microsoft
    account — this creates the backing Azure DevOps organisation.
-2. Create a publisher; the **ID** you choose is what goes in `package.json`
-   (the display name is separate and can be changed later).
-3. Set the field:
+2. Create a publisher whose **ID** is `KbraBass` (the display name is separate
+   and can be changed later).
 
-   ```json
-   "publisher": "<your-publisher-id>"
-   ```
+A publisher ID cannot be renamed once extensions are published under it. If
+`KbraBass` is already taken by someone else, pick another and update the field.
 
-A publisher ID cannot be renamed once extensions are published under it, and
-the extension's Marketplace identity is `<publisher>.<name>` — so it is worth
-a moment's thought.
+### Icon
 
-### There is no icon yet
-
-`vsce` warns when `icon` is missing, and the Marketplace listing falls back to
-a generic placeholder. Add a **128×128 PNG** (larger is fine, square and PNG
-are not optional — SVG is rejected):
-
-```json
-"icon": "images/icon.png"
-```
-
-Keep it out of `.vscodeignore` so it ships inside the `.vsix`.
+[`images/icon.png`](../images/icon.png), 256×256. The Marketplace requires a
+square PNG of at least 128×128 — SVG is rejected. Keep it out of
+`.vscodeignore` so it ships inside the `.vsix`.
 
 ## Personal access token
 
@@ -196,7 +187,7 @@ renders it as the extension's "Changelog" tab.
 
 | Symptom | Cause |
 | --- | --- |
-| `ERROR Missing publisher name` | `publisher` still the placeholder, or no `--pat`/login |
+| `ERROR Missing publisher name` | no `--pat`/login, or the publisher does not exist |
 | `401 Unauthorized` on publish | PAT not scoped to *all* organizations, or expired |
 | `ERROR Make sure to edit the README.md` | the default template README is still in place |
 | Extension installs but does nothing | `dist/` missing from the package — build before packaging |

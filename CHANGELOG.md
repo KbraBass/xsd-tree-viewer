@@ -20,6 +20,10 @@ version being released and uses the section as the release notes.
   `dry_run` mode. Release notes come from this section. The Marketplace publish
   is the final step and skips itself until a `VSCE_PAT` secret exists.
 
+- An extension icon ([`images/icon.png`](images/icon.png)), and `publisher`
+  set to `KbraBass`, making the Marketplace identity
+  `KbraBass.xsd-tree-viewer`.
+
 ### Fixed
 - `npm test` resolved `out/test/` as a module on Node 22 and failed with
   `MODULE_NOT_FOUND`; only newer versions accept the directory form. It now
