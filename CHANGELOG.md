@@ -3,10 +3,14 @@
 All notable changes to XSD Tree Viewer are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.1] - 2026-09-09
+Add entries under `## [Unreleased]` as you go. The release workflow dates that
+heading with the version being released, opens a fresh empty one above it, and
+publishes the section verbatim as the GitHub Release notes — so keep it free of
+notes to yourself.
 
-Add entries here as you go; the release workflow renames this heading to the
-version being released and uses the section as the release notes.
+## [Unreleased]
+
+## [0.2.1] - 2026-09-09
 
 ### Added
 - CI on every push and pull request: typecheck, bundle, unit tests, and a

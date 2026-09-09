@@ -82,28 +82,40 @@ jobs:
           set -euo pipefail
           heading="## [${{ steps.version.outputs.version }}] - $(date -u +%Y-%m-%d)"
           if grep -q '^## \[Unreleased\]$' CHANGELOG.md; then
+            # Date the section being released and open an empty one above it,
+            # so the next release has somewhere to collect entries.
             awk -v heading="$heading" '
-              !done && $0 == "## [Unreleased]" { print heading; done = 1; next }
+              !done && $0 == "## [Unreleased]" {
+                print "## [Unreleased]"
+                print ""
+                print heading
+                done = 1
+                next
+              }
               { print }
             ' CHANGELOG.md > CHANGELOG.next && mv CHANGELOG.next CHANGELOG.md
           else
             echo "::warning::No '## [Unreleased]' section found; CHANGELOG.md left as is."
           fi
 
+      # Written to the runner's temp dir, not the workspace: a notes file
+      # sitting next to package.json gets swept into the .vsix.
       - name: Extract release notes
         id: notes
         run: |
           set -euo pipefail
+          notes="${{ runner.temp }}/release-notes.md"
           awk -v version="${{ steps.version.outputs.version }}" '
             index($0, "## [" version "]") == 1 { capture = 1; next }
             capture && /^## \[/ { exit }
             capture { print }
-          ' CHANGELOG.md > release-notes.md
-          if [ ! -s release-notes.md ]; then
-            echo "No changelog entry found for this version." > release-notes.md
+          ' CHANGELOG.md > "$notes"
+          if ! grep -q '[^[:space:]]' "$notes"; then
+            echo "No changelog entry found for this version." > "$notes"
           fi
+          echo "notes=$notes" >> "$GITHUB_OUTPUT"
           echo "--- release notes ---"
-          cat release-notes.md
+          cat "$notes"
 
       - name: Package
         id: package
@@ -138,7 +150,7 @@ jobs:
           gh release create "${{ steps.version.outputs.tag }}" \
             "${{ steps.package.outputs.vsix }}" \
             --title "${{ steps.version.outputs.tag }}" \
-            --notes-file release-notes.md
+            --notes-file "${{ steps.notes.outputs.notes }}"
 
       # Optional: only runs once a VSCE_PAT secret exists and `publisher` in
       # package.json is a real Marketplace publisher. See docs/PUBLISHING.md.
