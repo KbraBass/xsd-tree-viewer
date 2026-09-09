@@ -25,6 +25,11 @@ on:
 permissions:
   contents: write
 
+# Two releases at once would race on the version bump and the tag push.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
