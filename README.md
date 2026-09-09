@@ -6,8 +6,27 @@ XSD structure: collapsible element tree, cardinality, resolved types,
 documentation, and smart handling of recursive/deeply-reused schemas (e.g.
 OASIS UBL).
 
-[`docs/SPEC.md`](docs/SPEC.md) covers the goals, recursion/repetition
-rendering strategy, architecture, data model, testing corpus, and milestones.
+Requires VS Code 1.85 or newer. No network access, no telemetry, no native
+dependencies; it works in VS Code Web and on virtual filesystems.
+
+## Installing
+
+The extension is not on the Marketplace yet (see
+[`docs/PUBLISHING.md`](docs/PUBLISHING.md)). To install it from source:
+
+```sh
+git clone https://github.com/KbraBass/xsd-tree-viewer.git
+cd xsd-tree-viewer
+npm ci
+npm run package                                   # writes xsd-tree-viewer-<version>.vsix
+code --install-extension xsd-tree-viewer-*.vsix
+```
+
+Or press <kbd>F5</kbd> in VS Code to launch an Extension Development Host with
+the extension loaded.
+
+Then open a `.xsd` file and run **XSD Tree Viewer: Open Preview**, or use the
+preview icon in the editor title bar.
 
 ## Features
 
@@ -74,11 +93,39 @@ with `npx playwright install chromium` first, or point
 `PLAYWRIGHT_CHROMIUM_PATH` at an existing build. It skips cleanly when
 playwright is not present.
 
-The parser and resolver have no `vscode` dependency — file access goes
-through the `SchemaFileSystem` port in [`src/schemaFileSystem.ts`](src/schemaFileSystem.ts) —
-so they run under plain Node in the test suite. Layout is flatter than the
-tree sketched in §7 of the spec: `src/{parser,resolver,model,preview,extension}.ts`
-plus `src/webview/`.
+### Layout
+
+| Path | Role |
+| --- | --- |
+| [`src/extension.ts`](src/extension.ts) | Activation, commands, preview sessions, refresh scheduling |
+| [`src/parser.ts`](src/parser.ts) | XML → tree, with line/column tracking and error tolerance |
+| [`src/resolver.ts`](src/resolver.ts) | `ref`/`type`/import/include resolution, cycle and repeat guards |
+| [`src/model.ts`](src/model.ts) | Shared types, used by both the host and the webview |
+| [`src/schemaFileSystem.ts`](src/schemaFileSystem.ts) | File-access port, plus its VS Code implementation |
+| [`src/preview.ts`](src/preview.ts) | Webview panel, message handling, page shell |
+| [`src/webview/`](src/webview/) | Renderer, stylesheet, and page body markup |
+| [`test/`](test/) | Node suite over `test/fixtures/`, plus the browser check |
+
+The parser and resolver have no `vscode` dependency — file access goes through
+the `SchemaFileSystem` port — so they run under plain Node in the test suite,
+and can be reused outside a webview host. The layout is flatter than the tree
+sketched in §7 of the spec.
+
+## Documentation
+
+- [`docs/SPEC.md`](docs/SPEC.md) — goals, recursion/repetition strategy,
+  architecture, data model, testing corpus, milestones.
+- [`docs/PUBLISHING.md`](docs/PUBLISHING.md) — releasing to the Marketplace and
+  to GitHub, and what has to be set up first.
+- [`CHANGELOG.md`](CHANGELOG.md) — what changed in each version.
+
+## Contributing
+
+Issues and pull requests are welcome at
+<https://github.com/KbraBass/xsd-tree-viewer>. Before opening a PR, please run
+`npm run build` and `npm test`; if you touched anything under `src/webview/`,
+run `npm run test:webview` too. New resolver behaviour should come with a
+fixture under `test/fixtures/` covering it.
 
 ## Status
 
@@ -89,4 +136,7 @@ sub-second builds.
 
 ## License
 
-Apache-2.0
+[Apache-2.0](LICENSE).
+
+The OASIS UBL schemas used for manual validation are not distributed with this
+repository and remain subject to their own OASIS copyright and licence terms.

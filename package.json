@@ -5,6 +5,14 @@
   "version": "0.2.0",
   "publisher": "xsd-tree-viewer",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KbraBass/xsd-tree-viewer.git"
+  },
+  "homepage": "https://github.com/KbraBass/xsd-tree-viewer#readme",
+  "bugs": {
+    "url": "https://github.com/KbraBass/xsd-tree-viewer/issues"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },

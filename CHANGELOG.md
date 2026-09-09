@@ -76,6 +76,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Rows carry their node kind as a class, so elements, attributes, types and
   structure particles are styled distinctly, and an `xs:choice` gets a dashed
   guide of its own to mark it as a decision point.
+- Repository, homepage and issue-tracker metadata in `package.json`, a
+  publishing guide in `docs/PUBLISHING.md`, and install/layout/contributing
+  sections in the README.
 - `npm run test:webview`: a browser check that drives the real webview bundle,
   expanding and re-collapsing nodes at random and asserting every visible row
   stays reachable by keyboard. Needs `npx playwright install chromium`; it
@@ -115,6 +118,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   renders no row of its own. An `xs:choice`, or a sequence with non-default
   cardinality, still gets a row.
 - Buttons no longer underline on hover, which read as a link.
+- `package-lock.json` resolves packages from the public npm registry rather
+  than an internal mirror, so `npm ci` works outside that network. Integrity
+  hashes are unchanged.
 - The webview shares its type definitions with the extension host instead of
   duplicating them, and the preview's body markup lives in one `vscode`-free
   module so the browser checks render the real page structure.

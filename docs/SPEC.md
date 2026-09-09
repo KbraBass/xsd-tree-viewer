@@ -297,8 +297,8 @@ interface CctsComponentInfo {
   each (recursion, repetition, cross-file refs, malformed input) so tests
   stay fast and don't depend on external repositories.
 - **Manual / performance validation** uses the real OASIS UBL 2.5 schemas
-  available locally at:
-  `/Users/Alexandre.Silva/Git/bt-canon/Reference Material/UBL-2.5/os-UBL-2.5/xsd/`
+  from a local checkout of the OASIS distribution, i.e.
+  `<ubl-2.5-checkout>/os-UBL-2.5/xsd/`:
   - `maindoc/UBL-Invoice-2.5.xsd` (~1,150 lines) — good smoke-test document:
     single import chain, moderate nesting, real `ccts:Component`
     documentation blocks.
@@ -309,10 +309,10 @@ interface CctsComponentInfo {
     style structures nested via several intermediate types).
   - `maindoc/*.xsd` (101 documents total) — used to spot-check that the
     preview opens correctly across a wide variety of real document types.
-  - This UBL checkout is external to this repository (lives in a sibling
-    project) and is **not** copied into `xsd-tree-viewer`; it's referenced
-    here purely as a manual validation corpus available on the developer's
-    machine, subject to its own OASIS copyright/license terms.
+  - This UBL checkout is external to this repository and is **not** copied
+    into `xsd-tree-viewer`; it's referenced here purely as a manual
+    validation corpus each developer obtains separately, subject to its own
+    OASIS copyright/license terms.
 
 ## 10. Acceptance Criteria (v1 "done")
 1. "Open Preview" on any single-file `.xsd` renders a themed webview tree
