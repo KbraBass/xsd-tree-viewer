@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="urn:example:nested"
+           elementFormDefault="qualified">
+  <xs:element name="Order" type="OrderType"/>
+  <xs:complexType name="OrderType">
+    <xs:sequence>
+      <xs:element name="Header" type="HeaderType"/>
+      <xs:element name="Line" type="LineType" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="HeaderType">
+    <xs:sequence>
+      <xs:element name="Reference" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="LineType">
+    <xs:sequence>
+      <xs:element name="Quantity" type="xs:decimal"/>
+      <xs:element name="Item" type="ItemType"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="ItemType">
+    <xs:sequence>
+      <xs:element name="Description" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+</xs:schema>

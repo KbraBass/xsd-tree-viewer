@@ -2,7 +2,7 @@
   "name": "xsd-tree-viewer",
   "displayName": "XSD Tree Viewer",
   "description": "Rich, navigable XML Schema previews for Visual Studio Code.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "xsd-tree-viewer",
   "license": "Apache-2.0",
   "engines": {
@@ -19,7 +19,8 @@
     "ubl"
   ],
   "activationEvents": [
-    "onLanguage:xml"
+    "onLanguage:xml",
+    "onLanguage:xsd"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -64,10 +65,19 @@
       ],
       "commandPalette": [
         {
-          "command": "xsdTreeViewer.openPreview"
+          "command": "xsdTreeViewer.openPreview",
+          "when": "resourceExtname == .xsd || resourceLangId == xml"
         },
         {
-          "command": "xsdTreeViewer.openPreviewToSide"
+          "command": "xsdTreeViewer.openPreviewToSide",
+          "when": "resourceExtname == .xsd || resourceLangId == xml"
+        },
+        {
+          "command": "xsdTreeViewer.revealInPreview",
+          "when": "resourceExtname == .xsd || resourceLangId == xml"
+        },
+        {
+          "command": "xsdTreeViewer.goToDefinition"
         }
       ]
     },
@@ -78,12 +88,12 @@
           "type": "number",
           "default": 3,
           "minimum": 0,
-          "description": "Depth after which preview nodes are collapsed by default."
+          "description": "Number of element levels expanded without a click. Deeper nodes render collapsed and load on demand."
         },
         "xsdTreeViewer.collapseRepeatedSubtrees": {
           "type": "boolean",
           "default": true,
-          "description": "Collapse repeated type subtrees after their first expansion."
+          "description": "Collapse a repeated type's subtree after its first expansions, with a jump link to the first occurrence."
         },
         "xsdTreeViewer.parseCctsAnnotations": {
           "type": "boolean",
@@ -95,10 +105,13 @@
   },
   "scripts": {
     "build": "npm run clean && npm run compile",
-    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
-    "compile": "tsc --noEmit && node esbuild.js",
-    "check": "tsc --noEmit",
-    "package": "npm run build && npx vsce package"
+    "clean": "node -e \"for (const d of ['dist','out']) require('fs').rmSync(d, { recursive: true, force: true })\"",
+    "compile": "npm run check && node esbuild.js",
+    "check": "tsc --noEmit -p tsconfig.json",
+    "package": "npm run build && npm test && npx vsce package",
+    "watch": "node esbuild.js --watch",
+    "pretest": "tsc -p tsconfig.test.json",
+    "test": "node --test out/test/"
   },
   "dependencies": {
     "sax": "^1.4.1"
@@ -109,5 +122,11 @@
     "@types/vscode": "^1.85.0",
     "esbuild": "^0.24.2",
     "typescript": "^5.7.2"
+  },
+  "capabilities": {
+    "virtualWorkspaces": true,
+    "untrustedWorkspaces": {
+      "supported": true
+    }
   }
 }

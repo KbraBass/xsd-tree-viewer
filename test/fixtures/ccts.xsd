@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:ccts="urn:un:unece:uncefact:documentation:2"
+           targetNamespace="urn:example:ccts"
+           elementFormDefault="qualified">
+  <xs:element name="ID" type="xs:string">
+    <xs:annotation>
+      <xs:documentation>
+        <ccts:Component>
+          <ccts:ComponentType>BBIE</ccts:ComponentType>
+          <ccts:DictionaryEntryName>Invoice. Identifier</ccts:DictionaryEntryName>
+          <ccts:Definition>An identifier for this document.</ccts:Definition>
+          <ccts:Cardinality>1</ccts:Cardinality>
+          <ccts:ObjectClass>Invoice</ccts:ObjectClass>
+        </ccts:Component>
+      </xs:documentation>
+    </xs:annotation>
+  </xs:element>
+  <xs:element name="Invoice" type="InvoiceType"/>
+  <xs:complexType name="InvoiceType">
+    <xs:annotation>
+      <xs:documentation>
+        <ccts:Component>
+          <ccts:ComponentType>ABIE</ccts:ComponentType>
+          <ccts:DictionaryEntryName>Invoice. Details</ccts:DictionaryEntryName>
+          <ccts:ObjectClass>Invoice</ccts:ObjectClass>
+        </ccts:Component>
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element ref="ID" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation>
+            <ccts:Component>
+              <ccts:ComponentType>BBIE</ccts:ComponentType>
+              <ccts:DictionaryEntryName>Invoice. Identifier</ccts:DictionaryEntryName>
+              <ccts:Cardinality>0..1</ccts:Cardinality>
+              <ccts:PropertyTerm>Identifier</ccts:PropertyTerm>
+              <ccts:RepresentationTerm>Identifier</ccts:RepresentationTerm>
+              <ccts:DataType>Identifier. Type</ccts:DataType>
+              <ccts:Examples>INV-1</ccts:Examples>
+            </ccts:Component>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="Note" type="xs:string" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation>Free-form commentary.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+</xs:schema>

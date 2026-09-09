@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="urn:example:direct"
+           elementFormDefault="qualified">
+  <xs:element name="Tree" type="NodeType"/>
+  <xs:complexType name="NodeType">
+    <xs:sequence>
+      <xs:element name="Label" type="xs:string"/>
+      <xs:element name="Child" type="NodeType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+</xs:schema>

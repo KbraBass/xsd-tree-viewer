@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="urn:example:facets"
+           elementFormDefault="qualified">
+  <xs:element name="Status" type="NarrowStatusType"/>
+  <xs:element name="Codes" type="CodeListType"/>
+  <xs:element name="Either" type="EitherType"/>
+  <xs:simpleType name="StatusType">
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="12"/>
+      <xs:enumeration value="draft"/>
+      <xs:enumeration value="sent"/>
+      <xs:enumeration value="paid"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="NarrowStatusType">
+    <xs:restriction base="StatusType">
+      <xs:pattern value="[a-z]+"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="CodeListType">
+    <xs:list itemType="xs:token"/>
+  </xs:simpleType>
+  <xs:simpleType name="EitherType">
+    <xs:union memberTypes="xs:decimal xs:string"/>
+  </xs:simpleType>
+</xs:schema>

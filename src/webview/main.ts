@@ -1,85 +1,103 @@
-interface SourceLocation {
-  uri: string;
-  line: number;
-  column: number;
-}
+import type { PreviewModel, SchemaNode, SearchHit, SourceLocation } from "../model";
 
-interface CctsInfo {
-  componentType?: string;
-  dictionaryEntryName?: string;
-  definition?: string;
-  cardinality?: string;
-  objectClass?: string;
-}
+declare function acquireVsCodeApi(): { postMessage(message: unknown): void };
 
-interface Node {
-  id: string;
-  kind: string;
-  name?: string;
-  namespace?: string;
-  type?: string;
-  minOccurs?: number;
-  maxOccurs?: number | "unbounded";
-  nillable?: boolean;
-  fixed?: string;
-  default?: string;
-  documentation?: string;
-  ccts?: CctsInfo;
-  facets?: Record<string, string | string[]>;
-  sourceLocation: SourceLocation;
-  children: Node[];
-  unresolvedRef?: string;
-  recursion?: { cyclesBackToTypeId: string; targetNodeId?: string };
-  firstOccurrenceId?: string;
-  collapsed?: boolean;
-  expandable?: boolean;
-  childrenLoaded?: boolean;
-}
-
-interface Model {
-  source: string;
-  title: string;
-  targetNamespace: string;
-  namespacePrefixes: Record<string, string>;
-  warnings: string[];
-  roots: Node[];
-}
-
-declare function acquireVsCodeApi(): {
-  postMessage(message: unknown): void;
-};
+type HostMessage =
+  | { type: "update"; model: PreviewModel }
+  | { type: "expanded"; id: string; children: SchemaNode[] }
+  | { type: "searchResults"; query: string; hits: SearchHit[] }
+  | { type: "revealSource"; uri: string; line: number };
 
 const vscode = acquireVsCodeApi();
-const title = document.getElementById("title") as HTMLElement;
-const namespace = document.getElementById("namespace") as HTMLElement;
-const filter = document.getElementById("filter") as HTMLInputElement;
+const titleElement = document.getElementById("title") as HTMLElement;
+const namespaceElement = document.getElementById("namespace") as HTMLElement;
+const filterInput = document.getElementById("filter") as HTMLInputElement;
+const collapseAllButton = document.getElementById("collapse-all") as HTMLButtonElement;
+const matchCountElement = document.getElementById("match-count") as HTMLElement;
+const declarationsElement = document.getElementById("declarations") as HTMLElement;
 const tree = document.getElementById("tree") as HTMLElement;
 const detailsPanel = document.getElementById("details-panel") as HTMLElement;
-let model: Model | undefined;
-const expanded = new Set<string>();
+
+let model: PreviewModel | undefined;
 let selectedId: string | undefined;
 let focusedId: string | undefined;
+let query = "";
+let searchDebounce: number | undefined;
+let renderDebounce: number | undefined;
+
+/** Nodes the reader opened, and nodes the reader explicitly closed. */
+const expanded = new Set<string>();
+const collapsedByUser = new Set<string>();
 const loadingExpansions = new Set<string>();
 
+/** Id indexes, so selection and path lookups stay O(1) on large schemas. */
+const byId = new Map<string, SchemaNode>();
+const parentOf = new Map<string, string>();
+/** Per-render memo of "this subtree contains a filter match". */
+const matchCache = new Map<string, boolean>();
+
+const escapes: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#039;",
+};
+
 function escape(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#039;",
-  }[character] ?? character));
+  return value.replace(/[&<>"']/g, (character) => escapes[character] ?? character);
 }
 
-function cardinality(node: Node): string | undefined {
+function indexSubtree(node: SchemaNode, parentId?: string): void {
+  byId.set(node.id, node);
+  if (parentId !== undefined) {
+    parentOf.set(node.id, parentId);
+  }
+  for (const child of node.children) {
+    indexSubtree(child, node.id);
+  }
+}
+
+function findNode(id: string | undefined): SchemaNode | undefined {
+  return id === undefined ? undefined : byId.get(id);
+}
+
+function findPath(id: string): SchemaNode[] | undefined {
+  const node = byId.get(id);
+  if (!node) {
+    return undefined;
+  }
+  const path = [node];
+  let currentId = id;
+  for (;;) {
+    const parentId = parentOf.get(currentId);
+    const parent = parentId === undefined ? undefined : byId.get(parentId);
+    if (!parent) {
+      return path;
+    }
+    path.unshift(parent);
+    currentId = parent.id;
+  }
+}
+
+function cardinality(node: SchemaNode): string | undefined {
   if (node.minOccurs === undefined && node.maxOccurs === undefined) {
     return undefined;
   }
-  return `[${node.minOccurs ?? 1}..${node.maxOccurs === "unbounded" ? "*" : node.maxOccurs ?? 1}]`;
+  const max = node.maxOccurs === "unbounded" ? "*" : node.maxOccurs ?? 1;
+  return `[${node.minOccurs ?? 1}..${max}]`;
 }
 
-function qualifiedName(node: Node): string {
-  const name = node.kind === "attribute"
+function cardinalityClass(node: SchemaNode): string {
+  const max = node.maxOccurs;
+  if (max === "unbounded" || (typeof max === "number" && max > 1)) {
+    return "repeatable";
+  }
+  return (node.minOccurs ?? 1) === 0 ? "optional" : "required";
+}
+
+function qualifiedName(node: SchemaNode): string {
+  const name = node.kind === "attribute" || node.kind === "anyAttribute"
     ? `@${node.name ?? "attribute"}`
     : node.kind === "any"
       ? "*"
@@ -88,9 +106,14 @@ function qualifiedName(node: Node): string {
   return prefix && !name.startsWith("@") && name !== "*" ? `${prefix}:${name}` : name;
 }
 
-function matches(node: Node, query: string): boolean {
+/** True when the node itself, or any descendant, matches the active filter. */
+function matches(node: SchemaNode): boolean {
   if (!query) {
     return true;
+  }
+  const cached = matchCache.get(node.id);
+  if (cached !== undefined) {
+    return cached;
   }
   const haystack = [
     node.name,
@@ -99,186 +122,227 @@ function matches(node: Node, query: string): boolean {
     node.ccts?.definition,
     node.ccts?.dictionaryEntryName,
   ].filter(Boolean).join(" ").toLowerCase();
-  return haystack.includes(query.toLowerCase()) || node.children.some((child) => matches(child, query));
+  const result = haystack.includes(query) || node.children.some((child) => matches(child));
+  matchCache.set(node.id, result);
+  return result;
 }
 
-function findPath(nodes: Node[], targetId: string, path: Node[] = []): Node[] | undefined {
-  for (const node of nodes) {
-    const nextPath = [...path, node];
-    if (node.id === targetId) {
-      return nextPath;
-    }
-    const nestedPath = findPath(node.children, targetId, nextPath);
-    if (nestedPath) {
-      return nestedPath;
-    }
+function matchesSelf(node: SchemaNode): boolean {
+  if (!query) {
+    return false;
   }
-  return undefined;
+  const haystack = [node.name, node.type, node.documentation].filter(Boolean).join(" ").toLowerCase();
+  return haystack.includes(query);
 }
 
-function xpath(path: Node[]): string {
-  const segments = path
-    .filter((node) => node.kind === "element" || node.kind === "attribute")
-    .map((node) => node.kind === "attribute"
-      ? `@${node.name ?? "attribute"}`
-      : qualifiedName(node));
-  return segments.length ? `/${segments.join("/")}` : "/";
+function countMatches(nodes: SchemaNode[]): number {
+  return nodes.reduce(
+    (total, node) => total + (matchesSelf(node) ? 1 : 0) + countMatches(node.children),
+    0,
+  );
 }
 
-function directAttributes(node: Node): Node[] {
-  const attributes: Node[] = [];
+/** Structure particles that carry no information worth a tree row of their own. */
+function isTransparentStructure(node: SchemaNode): boolean {
+  return (node.kind === "sequence" || node.kind === "all")
+    && (node.minOccurs ?? 1) === 1
+    && (node.maxOccurs ?? 1) === 1;
+}
+
+/** Type nodes are an implementation detail — unless they stand in for a cycle or repeat. */
+function isTransparentType(node: SchemaNode): boolean {
+  return (node.kind === "complexType" || node.kind === "simpleType")
+    && !node.recursion
+    && !node.firstOccurrenceId
+    && !node.collapsed;
+}
+
+function isStructureContainer(node: SchemaNode): boolean {
+  return node.kind === "sequence" || node.kind === "choice" || node.kind === "all";
+}
+
+function directAttributes(node: SchemaNode): SchemaNode[] {
+  const attributes: SchemaNode[] = [];
   for (const child of node.children) {
-    if (child.kind === "attribute") {
+    if (child.kind === "attribute" || child.kind === "anyAttribute") {
       attributes.push(child);
-    } else if (["sequence", "choice", "all", "group", "attributeGroup"].includes(child.kind)) {
+    } else if (isStructureContainer(child) || child.kind === "group" || child.kind === "attributeGroup") {
       attributes.push(...directAttributes(child));
     }
   }
   return attributes;
 }
 
-function findNode(nodes: Node[], targetId: string): Node | undefined {
-  for (const node of nodes) {
-    if (node.id === targetId) {
-      return node;
-    }
-    const nested = findNode(node.children, targetId);
-    if (nested) {
-      return nested;
-    }
-  }
-  return undefined;
+function xpath(path: SchemaNode[]): string {
+  const segments = path
+    .filter((node) => node.kind === "element" || node.kind === "attribute")
+    .map((node) => node.kind === "attribute" ? `@${node.name ?? "attribute"}` : qualifiedName(node));
+  return segments.length ? `/${segments.join("/")}` : "/";
 }
 
-function isStructure(node: Node): boolean {
-  return ["sequence", "choice", "all", "group", "attributeGroup"].includes(node.kind);
+function definitionList(entries: [string, string][], className: string): string {
+  return `<div class="${className}">${entries
+    .map(([key, value]) => `<div><strong>${escape(key)}</strong><span>${escape(value)}</span></div>`)
+    .join("")}</div>`;
 }
 
-function isImplementationMarker(node: Node): boolean {
-  return node.kind === "complexType" || node.kind === "simpleType";
+function presentEntries(source: Record<string, string | undefined>): [string, string][] {
+  return Object.entries(source).filter((entry): entry is [string, string] => Boolean(entry[1]));
 }
 
 function renderDetails(): void {
-  if (!model || !selectedId) {
+  const node = findNode(selectedId);
+  const path = selectedId ? findPath(selectedId) : undefined;
+  if (!node || !path) {
     detailsPanel.innerHTML = `<div class="details-empty">Select a node to inspect its schema details.</div>`;
     return;
   }
-  const path = findPath(model.roots, selectedId);
-  const node = findNode(model.roots, selectedId);
-  if (!path || !node) {
-    detailsPanel.innerHTML = `<div class="details-empty">Select a node to inspect its schema details.</div>`;
-    return;
-  }
-  const entries = Object.entries({
+  const nodePath = xpath(path);
+  const schemaEntries = presentEntries({
     Kind: node.kind,
     Name: node.name,
     Type: node.type,
     Namespace: node.namespace,
     Cardinality: cardinality(node),
     Nillable: node.nillable ? "true" : undefined,
+    Abstract: node.abstract ? "true" : undefined,
+    "Substitutes": node.substitutionGroup,
     Fixed: node.fixed,
     Default: node.default,
-  }).filter((entry): entry is [string, string] => Boolean(entry[1]));
+    Wildcard: node.wildcard
+      ? `${node.wildcard.namespace ?? "##any"} (${node.wildcard.processContents ?? "strict"})`
+      : undefined,
+    Unresolved: node.unresolvedRef,
+  });
   const attributes = directAttributes(node);
   const attributeMarkup = attributes.length
-    ? `<section class="detail-section"><h3>Attributes</h3><div class="attribute-list">${attributes.map((attribute) => `<div><strong>${escape(attribute.name ?? "attribute")}</strong><span>${escape(attribute.type ?? "")}${escape(cardinality(attribute) ?? "")}</span></div>`).join("")}</div></section>`
+    ? `<section class="detail-section"><h3>Attributes</h3>${definitionList(
+        attributes.map((attribute): [string, string] => [
+          attribute.name ?? "attribute",
+          `${attribute.type ?? ""}${cardinality(attribute) ?? ""}`,
+        ]),
+        "attribute-list",
+      )}</section>`
     : "";
   const cctsEntries = node.ccts
-    ? Object.entries({
+    ? presentEntries({
         "Component type": node.ccts.componentType,
         "Dictionary entry": node.ccts.dictionaryEntryName,
-        "Definition": node.ccts.definition,
-        "Cardinality": node.ccts.cardinality,
+        Definition: node.ccts.definition,
+        Cardinality: node.ccts.cardinality,
         "Object class": node.ccts.objectClass,
-      }).filter((entry): entry is [string, string] => Boolean(entry[1]))
+        "Property term": node.ccts.propertyTerm,
+        "Representation": node.ccts.representationTerm,
+        "Data type": node.ccts.dataType,
+        Examples: node.ccts.examples,
+      })
     : [];
   const cctsMarkup = cctsEntries.length
-    ? `<section class="detail-section"><h3>CCTS</h3><div class="detail-table">${cctsEntries.map(([key, value]) => `<div><strong>${escape(key)}</strong><span>${escape(value)}</span></div>`).join("")}</div></section>`
+    ? `<section class="detail-section"><h3>CCTS</h3>${definitionList(cctsEntries, "detail-table")}</section>`
     : "";
-  const facetsMarkup = node.facets && Object.keys(node.facets).length
-    ? `<section class="detail-section"><h3>Facets</h3><div class="facet-list">${Object.entries(node.facets).map(([key, value]) => `<div><strong>${escape(key)}</strong><span>${escape(Array.isArray(value) ? value.join(", ") : value)}</span></div>`).join("")}</div></section>`
+  const facetEntries: [string, string][] = Object.entries(node.facets ?? {})
+    .map(([key, value]) => [key, Array.isArray(value) ? value.join(", ") : value]);
+  const facetsMarkup = facetEntries.length
+    ? `<section class="detail-section"><h3>Facets</h3>${definitionList(facetEntries, "facet-list")}</section>`
     : "";
   detailsPanel.innerHTML = `
     <div class="details-heading"><span class="kind">${escape(node.kind)}</span><h2>${escape(node.name ?? node.type ?? "Anonymous node")}</h2></div>
     <section class="detail-section xpath-section">
       <h3>XPath</h3>
-      <div class="xpath-value">${escape(xpath(path))}</div>
-      <button class="copy-button" data-action="copy-xpath" data-xpath="${escape(xpath(path))}" title="Copy XPath">Copy XPath</button>
+      <div class="xpath-value">${escape(nodePath)}</div>
+      <button class="copy-button" data-action="copy-xpath" data-xpath="${escape(nodePath)}" title="Copy XPath">Copy XPath</button>
     </section>
-    <section class="detail-section"><h3>Schema</h3><div class="detail-table">${entries.map(([key, value]) => `<div><strong>${escape(key)}</strong><span>${escape(value)}</span></div>`).join("")}</div></section>
+    <section class="detail-section"><h3>Schema</h3>${definitionList(schemaEntries, "detail-table")}</section>
     ${node.documentation ? `<section class="detail-section"><h3>Documentation</h3><p class="documentation">${escape(node.documentation)}</p></section>` : ""}
     ${attributeMarkup}
     ${cctsMarkup}
     ${facetsMarkup}
-    <section class="detail-section source-section"><h3>Source</h3><div class="source-location">${escape(node.sourceLocation.uri)}:${node.sourceLocation.line + 1}:${node.sourceLocation.column + 1}</div><button class="icon-button" data-action="source" data-uri="${escape(node.sourceLocation.uri)}" data-line="${node.sourceLocation.line}" data-column="${node.sourceLocation.column}" title="Go to source" aria-label="Go to source">↗</button></section>`;
+    <section class="detail-section source-section"><h3>Source</h3><div class="source-location">${escape(node.sourceLocation.uri)}:${node.sourceLocation.line + 1}:${node.sourceLocation.column + 1}</div><button class="icon-button" data-action="source" data-uri="${escape(node.sourceLocation.uri)}" data-line="${node.sourceLocation.line}" data-column="${node.sourceLocation.column}" title="Go to source" aria-label="Go to source">&#8599;</button></section>`;
 }
 
-function row(node: Node): string {
-  const displayName = qualifiedName(node);
+function sourceButton(location: SourceLocation, className = "icon-button source-link"): string {
+  return `<button class="${className}" data-action="source" data-uri="${escape(location.uri)}" data-line="${location.line}" data-column="${location.column}" title="Go to source" aria-label="Go to source">&#8599;</button>`;
+}
+
+function row(node: SchemaNode): string {
+  const stub = node.recursion
+    ? `<span class="stub-note">recursive reference to ${escape(node.name ?? "type")} &mdash; expand for one more level</span>`
+    : node.firstOccurrenceId
+      ? `<span class="stub-note">same structure as ${escape(node.name ?? "type")} above</span>`
+      : "";
   const labels = [
-    `<span class="name ${node.kind === "attribute" ? "attribute-name" : ""}">${escape(displayName)}</span>`,
-    cardinality(node) ? `<span class="cardinality">${escape(cardinality(node) ?? "")}</span>` : "",
+    `<span class="name${node.kind === "attribute" || node.kind === "anyAttribute" ? " attribute-name" : ""}">${escape(qualifiedName(node))}</span>`,
+    node.type && node.type !== node.name ? `<span class="type-name">${escape(node.type)}</span>` : "",
+    cardinality(node) ? `<span class="cardinality ${cardinalityClass(node)}">${escape(cardinality(node) ?? "")}</span>` : "",
+    node.kind === "choice" ? `<span class="badge">choice</span>` : "",
     node.nillable ? `<span class="badge">nillable</span>` : "",
+    node.abstract ? `<span class="badge">abstract</span>` : "",
+    node.substitutionGroup ? `<span class="badge">substitutes ${escape(node.substitutionGroup)}</span>` : "",
+    node.wildcard ? `<span class="badge">${escape(node.wildcard.namespace ?? "##any")}</span>` : "",
     node.fixed ? `<span class="badge">fixed=${escape(node.fixed)}</span>` : "",
     node.default ? `<span class="badge">default=${escape(node.default)}</span>` : "",
     node.unresolvedRef ? `<span class="unresolved">unresolved ${escape(node.unresolvedRef)}</span>` : "",
-    node.recursion ? `<span class="recursive">↻ recursive</span>` : "",
-    node.firstOccurrenceId ? `<span class="repeat-badge">↻</span>` : "",
+    node.recursion ? `<span class="recursive">&#8635;</span>` : "",
+    node.firstOccurrenceId ? `<span class="repeat-badge">&#8635;</span>` : "",
+    stub,
   ];
-  const sourceButton = `<button class="icon-button source-link" data-action="source" data-uri="${escape(node.sourceLocation.uri)}" data-line="${node.sourceLocation.line}" data-column="${node.sourceLocation.column}" title="Go to source" aria-label="Go to source">↗</button>`;
-  const repeatButton = node.firstOccurrenceId
-    ? `<button class="icon-button" data-action="jump" data-target="${escape(node.firstOccurrenceId)}" title="Show first full expansion" aria-label="Show first full expansion">↪</button>`
+  const jumpTarget = node.firstOccurrenceId ?? node.recursion?.targetNodeId;
+  const jumpButton = jumpTarget
+    ? `<button class="icon-button" data-action="jump" data-target="${escape(jumpTarget)}" title="Jump to first full expansion" aria-label="Jump to first full expansion">&#8618;</button>`
     : "";
-  const recursionButton = node.recursion?.targetNodeId
-    ? `<button class="icon-button" data-action="jump" data-target="${escape(node.recursion.targetNodeId)}" title="Jump to containing expansion" aria-label="Jump to containing expansion">↩</button>`
-    : "";
-  return `<span class="row">${labels.join("")}${repeatButton}${recursionButton}${sourceButton}</span>`;
+  return `<span class="row">${labels.join("")}${jumpButton}${sourceButton(node.sourceLocation)}</span>`;
 }
 
-function renderStructure(node: Node): string {
-  const query = filter.value.trim();
-  if (!matches(node, query)) {
-    return "";
+function shouldAutoOpen(node: SchemaNode, depth: number): boolean {
+  if (node.collapsed || node.childrenLoaded === false) {
+    return false;
   }
-  const children = node.children.map((child) => renderNode(child)).join("");
-  return `<div class="structure-group" data-id="${escape(node.id)}">${children}</div>`;
+  return depth < (model?.autoCollapseDepth ?? 3);
 }
 
-function renderNode(node: Node, root = false): string {
-  const query = filter.value.trim();
-  if (!matches(node, query)) {
+function renderNode(node: SchemaNode, depth: number, root = false): string {
+  if (!matches(node)) {
     return "";
   }
-  if (isImplementationMarker(node)) {
-    return node.children.map((child) => renderNode(child)).join("");
+  if (!root && (isTransparentType(node) || (isTransparentStructure(node) && node.children.length > 0))) {
+    const children = node.children.map((child) => renderNode(child, depth)).join("");
+    return isTransparentType(node)
+      ? children
+      : `<div class="structure-group" role="group" data-id="${escape(node.id)}">${children}</div>`;
   }
-  if (isStructure(node)) {
-    return renderStructure(node);
-  }
-  const hasChildren = node.children.some((child) => matches(child, query)) || Boolean(node.expandable);
-  const open = expanded.has(node.id) || query.length > 0;
+  const renderedChildren = node.children.filter((child) => matches(child));
+  const hasChildren = renderedChildren.length > 0 || Boolean(node.expandable);
   const selected = selectedId === node.id ? " selected" : "";
   if (!hasChildren) {
     return `<div class="node-item${root ? " root" : ""} leaf${selected}" data-id="${escape(node.id)}" role="treeitem" tabindex="-1">${row(node)}</div>`;
   }
-  const children = open ? node.children.map((child) => renderNode(child)).join("") : "";
-  const childMarkup = `<div class="node-children"${open ? " data-rendered=\"true\"" : ""}>${children}</div>`;
-  return `<details class="node-item${root ? " root" : ""}${selected}" data-id="${escape(node.id)}" ${open ? "open" : ""}><summary role="treeitem" tabindex="-1" aria-expanded="${open}">${row(node)}</summary>${childMarkup}</details>`;
+  const open = query
+    ? renderedChildren.length > 0
+    : expanded.has(node.id) || (shouldAutoOpen(node, depth) && !collapsedByUser.has(node.id));
+  const children = open ? renderedChildren.map((child) => renderNode(child, depth + 1)).join("") : "";
+  const childMarkup = `<div class="node-children"${open ? ' data-rendered="true"' : ""}>${children}</div>`;
+  return `<details class="node-item${root ? " root" : ""}${selected}" data-id="${escape(node.id)}"${open ? " open" : ""}><summary role="treeitem" tabindex="-1" aria-expanded="${open}">${row(node)}</summary>${childMarkup}</details>`;
 }
 
 function focusableForNode(element: HTMLElement): HTMLElement {
-  return element.matches("summary, .leaf") ? element : element.querySelector<HTMLElement>(":scope > summary") ?? element;
+  return element.matches("summary, .leaf")
+    ? element
+    : element.querySelector<HTMLElement>(":scope > summary") ?? element;
 }
 
-function focusableNodes(): HTMLElement[] {
-  return Array.from(tree.querySelectorAll<HTMLElement>(".node-item > summary, .node-item.leaf"))
-    .filter(isVisibleTreeElement);
+function elementForNode(id: string): HTMLElement | undefined {
+  return tree.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`) ?? undefined;
+}
+
+function detailsForNode(id: string): HTMLDetailsElement | undefined {
+  const element = elementForNode(id);
+  return element instanceof HTMLDetailsElement ? element : undefined;
 }
 
 function isVisibleTreeElement(element: HTMLElement): boolean {
   let ancestor = element.parentElement;
   while (ancestor && ancestor !== tree) {
-    if (ancestor.tagName.toLowerCase() === "details" && !(ancestor as HTMLDetailsElement).open) {
+    if (ancestor instanceof HTMLDetailsElement && !ancestor.open) {
       return element.tagName.toLowerCase() === "summary" && element.parentElement === ancestor;
     }
     ancestor = ancestor.parentElement;
@@ -286,11 +350,18 @@ function isVisibleTreeElement(element: HTMLElement): boolean {
   return element.getClientRects().length > 0;
 }
 
+function focusableNodes(): HTMLElement[] {
+  return Array.from(tree.querySelectorAll<HTMLElement>(".node-item > summary, .node-item.leaf"))
+    .filter(isVisibleTreeElement);
+}
+
 function updateTabStops(): void {
   const nodes = focusableNodes();
-  nodes.forEach((element) => {
-    element.tabIndex = element.dataset.id === (focusedId ?? selectedId) ? 0 : -1;
-  });
+  const active = focusedId ?? selectedId;
+  for (const element of nodes) {
+    const id = element.closest<HTMLElement>("[data-id]")?.dataset.id;
+    element.tabIndex = id === active ? 0 : -1;
+  }
   if (nodes.length && !nodes.some((element) => element.tabIndex === 0)) {
     nodes[0].tabIndex = 0;
     focusedId = nodes[0].closest<HTMLElement>("[data-id]")?.dataset.id;
@@ -298,20 +369,13 @@ function updateTabStops(): void {
 }
 
 function focusNode(id: string): void {
-  const element = Array.from(tree.querySelectorAll<HTMLElement>("[data-id]"))
-    .find((candidate) => candidate.dataset.id === id);
+  const element = elementForNode(id);
   if (!element) {
     return;
   }
   focusedId = id;
   updateTabStops();
   focusableForNode(element).focus();
-}
-
-function detailsForNode(id: string): HTMLDetailsElement | undefined {
-  const element = Array.from(tree.querySelectorAll<HTMLElement>("details[data-id]"))
-    .find((candidate) => candidate.dataset.id === id);
-  return element as HTMLDetailsElement | undefined;
 }
 
 function setNodeOpen(details: HTMLDetailsElement, open: boolean): void {
@@ -323,42 +387,61 @@ function setNodeOpen(details: HTMLDetailsElement, open: boolean): void {
   details.querySelector<HTMLElement>(":scope > summary")?.setAttribute("aria-expanded", String(open));
   if (open) {
     expanded.add(id);
-    const node = model ? findNode(model.roots, id) : undefined;
+    collapsedByUser.delete(id);
+    const node = findNode(id);
     const children = details.querySelector<HTMLElement>(":scope > .node-children");
-    if (node?.expandable && !node.childrenLoaded) {
+    if (node?.expandable && node.childrenLoaded === false) {
       if (!loadingExpansions.has(id)) {
         loadingExpansions.add(id);
         vscode.postMessage({ type: "expandNode", id });
       }
     } else if (node && children && children.dataset.rendered !== "true") {
-      children.innerHTML = node.children.map((child) => renderNode(child)).join("");
+      children.innerHTML = node.children
+        .filter((child) => matches(child))
+        .map((child) => renderNode(child, depthOf(id) + 1))
+        .join("");
       children.dataset.rendered = "true";
     }
   } else {
+    expanded.delete(id);
+    collapsedByUser.add(id);
     const summary = details.querySelector<HTMLElement>(":scope > summary");
     const active = document.activeElement;
     if (summary && active instanceof HTMLElement && active !== summary && details.contains(active)) {
       focusedId = id;
       summary.focus();
     }
-    expanded.delete(id);
   }
   updateTabStops();
 }
 
-function applyExpansion(id: string, children: Node[]): void {
-  const node = model ? findNode(model.roots, id) : undefined;
+/** Collapse depth of a node, counting only rows that render a level of their own. */
+function depthOf(id: string): number {
+  const path = findPath(id);
+  if (!path) {
+    return 0;
+  }
+  return path.slice(0, -1).filter((node) => !isTransparentType(node) && !isTransparentStructure(node)).length;
+}
+
+function applyExpansion(id: string, children: SchemaNode[]): void {
+  loadingExpansions.delete(id);
+  const node = findNode(id);
   if (!node) {
     return;
   }
-  loadingExpansions.delete(id);
   node.children = children;
   node.childrenLoaded = true;
-  node.expandable = false;
+  for (const child of children) {
+    indexSubtree(child, id);
+  }
   const details = detailsForNode(id);
   const container = details?.querySelector<HTMLElement>(":scope > .node-children");
   if (details?.open && container) {
-    container.innerHTML = children.map((child) => renderNode(child)).join("");
+    container.innerHTML = children
+      .filter((child) => matches(child))
+      .map((child) => renderNode(child, depthOf(id) + 1))
+      .join("");
     container.dataset.rendered = "true";
   }
   updateTabStops();
@@ -375,15 +458,12 @@ function handleTreeKeydown(event: KeyboardEvent): void {
     return;
   }
   const target = (event.target as HTMLElement).closest<HTMLElement>("[data-id]");
-  if (!target || !model) {
-    return;
-  }
-  const id = target.dataset.id;
-  if (!id) {
+  const id = target?.dataset.id;
+  if (!target || !id || !model) {
     return;
   }
   const details = detailsForNode(id);
-  const node = findNode(model.roots, id);
+  const node = findNode(id);
   const expandableDetails = node && (node.expandable || node.children.length) && details ? details : undefined;
   const visible = focusableNodes();
   const current = visible.indexOf(focusableForNode(target));
@@ -394,107 +474,174 @@ function handleTreeKeydown(event: KeyboardEvent): void {
       focusNode(nextId);
     }
   };
-  if (event.key === "ArrowDown") {
-    event.preventDefault();
-    moveTo(current + 1);
-  } else if (event.key === "ArrowUp") {
-    event.preventDefault();
-    moveTo(current - 1);
-  } else if (event.key === "Home") {
-    event.preventDefault();
-    moveTo(0);
-  } else if (event.key === "End") {
-    event.preventDefault();
-    moveTo(visible.length - 1);
-  } else if (event.key === "ArrowRight") {
-    event.preventDefault();
-    if (expandableDetails && !expandableDetails.open) {
-      setNodeOpen(expandableDetails, true);
-    } else {
+  switch (event.key) {
+    case "ArrowDown":
+      event.preventDefault();
       moveTo(current + 1);
-    }
-  } else if (event.key === "ArrowLeft") {
-    event.preventDefault();
-    if (expandableDetails && expandableDetails.open) {
-      setNodeOpen(expandableDetails, false);
-    } else {
-      const parent = parentFocusable(target);
-      const parentId = parent?.closest<HTMLElement>("[data-id]")?.dataset.id;
+      return;
+    case "ArrowUp":
+      event.preventDefault();
+      moveTo(current - 1);
+      return;
+    case "Home":
+      event.preventDefault();
+      moveTo(0);
+      return;
+    case "End":
+      event.preventDefault();
+      moveTo(visible.length - 1);
+      return;
+    case "ArrowRight":
+      event.preventDefault();
+      if (expandableDetails && !expandableDetails.open) {
+        setNodeOpen(expandableDetails, true);
+      } else {
+        moveTo(current + 1);
+      }
+      return;
+    case "ArrowLeft": {
+      event.preventDefault();
+      if (expandableDetails?.open) {
+        setNodeOpen(expandableDetails, false);
+        return;
+      }
+      const parentId = parentFocusable(target)?.closest<HTMLElement>("[data-id]")?.dataset.id;
       if (parentId) {
         focusNode(parentId);
       }
+      return;
     }
-  } else if (event.key === "Enter" || event.key === " ") {
-    event.preventDefault();
-    selectNode(id);
-    if (expandableDetails) {
-      setNodeOpen(expandableDetails, !expandableDetails.open);
-    }
+    case "Enter":
+    case " ":
+      event.preventDefault();
+      selectNode(id);
+      if (expandableDetails) {
+        setNodeOpen(expandableDetails, !expandableDetails.open);
+      }
+      return;
+    default:
+      return;
   }
+}
+
+function renderMatchCount(): void {
+  if (!query || !model) {
+    matchCountElement.textContent = "";
+    return;
+  }
+  const total = countMatches(model.roots);
+  matchCountElement.textContent = total === 1 ? "1 match in tree" : `${total} matches in tree`;
 }
 
 function render(): void {
   if (!model) {
     return;
   }
-  title.textContent = model.title;
-  namespace.textContent = model.targetNamespace ? `Target namespace: ${model.targetNamespace}` : "No target namespace";
-  const warnings = model.warnings.map((warning) => `<div class="warning">${escape(warning)}</div>`).join("");
-  const roots = model.roots.map((node) => renderNode(node, true)).join("");
+  const scrollTop = document.documentElement.scrollTop || document.body.scrollTop;
+  const previouslyFocused = document.activeElement instanceof HTMLElement
+    && tree.contains(document.activeElement);
+  matchCache.clear();
+  titleElement.textContent = model.title;
+  namespaceElement.textContent = model.targetNamespace
+    ? `Target namespace: ${model.targetNamespace}`
+    : "No target namespace";
+  const warnings = model.warnings
+    .map((warning) => `<div class="warning">${escape(warning)}</div>`)
+    .join("");
+  const roots = model.roots.map((node) => renderNode(node, 0, true)).join("");
   tree.innerHTML = `${warnings}${roots || '<div class="empty">No matching schema nodes.</div>'}`;
+  renderMatchCount();
   updateTabStops();
   renderDetails();
+  document.documentElement.scrollTop = scrollTop;
+  document.body.scrollTop = scrollTop;
+  if (previouslyFocused && focusedId) {
+    const element = elementForNode(focusedId);
+    if (element) {
+      focusableForNode(element).focus({ preventScroll: true });
+    }
+  }
 }
 
 function selectNode(id: string): void {
   selectedId = id;
-  tree.querySelectorAll<HTMLElement>(".selected").forEach((element) => element.classList.remove("selected"));
-  const selected = Array.from(tree.querySelectorAll<HTMLElement>("[data-id]")).find((element) => element.dataset.id === id);
-  selected?.classList.add("selected");
+  for (const element of tree.querySelectorAll<HTMLElement>(".selected")) {
+    element.classList.remove("selected");
+  }
+  elementForNode(id)?.classList.add("selected");
   focusedId = id;
   updateTabStops();
   renderDetails();
+  const node = findNode(id);
+  if (node) {
+    vscode.postMessage({
+      type: "selection",
+      id,
+      uri: node.sourceLocation.uri,
+      line: node.sourceLocation.line,
+      column: node.sourceLocation.column,
+    });
+  }
 }
 
 function revealNode(id: string): void {
-  if (!model) {
-    return;
-  }
-  const path = findPath(model.roots, id);
+  const path = findPath(id);
   if (!path) {
     return;
   }
-  path.forEach((node) => {
-    if (node.children.length) {
-      expanded.add(node.id);
-    }
-  });
+  for (const node of path.slice(0, -1)) {
+    expanded.add(node.id);
+    collapsedByUser.delete(node.id);
+  }
   selectedId = id;
   render();
   window.requestAnimationFrame(() => {
-    const target = Array.from(tree.querySelectorAll<HTMLElement>("[data-id]")).find((element) => element.dataset.id === id);
-    target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    elementForNode(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
   });
 }
 
+/** Selects the tree node declared closest to (and at or before) a source line. */
+function revealSourceLine(uri: string, line: number): void {
+  let best: SchemaNode | undefined;
+  for (const node of byId.values()) {
+    if (node.sourceLocation.uri !== uri || node.sourceLocation.line > line) {
+      continue;
+    }
+    if (!best || node.sourceLocation.line > best.sourceLocation.line) {
+      best = node;
+    }
+  }
+  if (best) {
+    revealNode(best.id);
+    selectNode(best.id);
+  }
+}
+
+function renderDeclarations(hits: SearchHit[]): void {
+  if (!hits.length) {
+    declarationsElement.hidden = true;
+    declarationsElement.innerHTML = "";
+    return;
+  }
+  declarationsElement.hidden = false;
+  declarationsElement.innerHTML = `<h2>Matching declarations</h2><ul>${hits
+    .map((hit) => `<li><span class="name">${escape(hit.name)}</span><span class="type-name">${escape(hit.kind)}</span>${sourceButton(hit.sourceLocation, "icon-button")}${hit.documentation ? `<span class="documentation">${escape(hit.documentation.slice(0, 120))}</span>` : ""}</li>`)
+    .join("")}</ul>`;
+}
+
 function handleButton(button: HTMLButtonElement): void {
-  if (button.dataset.action === "jump") {
-    const targetId = button.dataset.target;
-    if (targetId) {
-      revealNode(targetId);
-    }
+  const action = button.dataset.action;
+  if (action === "jump" && button.dataset.target) {
+    revealNode(button.dataset.target);
     return;
   }
-  if (button.dataset.action === "copy-xpath") {
-    const value = button.dataset.xpath;
-    if (value) {
-      vscode.postMessage({ type: "copyText", text: value });
-      button.textContent = "Copied";
-      window.setTimeout(() => { button.textContent = "Copy XPath"; }, 1200);
-    }
+  if (action === "copy-xpath" && button.dataset.xpath) {
+    vscode.postMessage({ type: "copyText", text: button.dataset.xpath });
+    button.textContent = "Copied";
+    window.setTimeout(() => { button.textContent = "Copy XPath"; }, 1200);
     return;
   }
-  if (button.dataset.action === "source") {
+  if (action === "source") {
     vscode.postMessage({
       type: "openSource",
       uri: button.dataset.uri,
@@ -505,18 +652,9 @@ function handleButton(button: HTMLButtonElement): void {
 }
 
 tree.addEventListener("toggle", (event) => {
-  const target = event.target as HTMLDetailsElement;
-  if (target.tagName.toLowerCase() !== "details") {
-    return;
-  }
-  const id = target.dataset.id;
-  if (!id) {
-    return;
-  }
-  if (target.open) {
-    setNodeOpen(target, true);
-  } else {
-    setNodeOpen(target, false);
+  const target = event.target;
+  if (target instanceof HTMLDetailsElement && target.dataset.id) {
+    setNodeOpen(target, target.open);
   }
 }, true);
 
@@ -524,7 +662,7 @@ tree.addEventListener("keydown", handleTreeKeydown);
 
 tree.addEventListener("click", (event) => {
   const target = event.target as HTMLElement;
-  const button = target.closest("button");
+  const button = target.closest<HTMLButtonElement>("button");
   const nodeElement = target.closest<HTMLElement>("[data-id]");
   if (nodeElement?.dataset.id && !button) {
     selectNode(nodeElement.dataset.id);
@@ -538,26 +676,79 @@ tree.addEventListener("click", (event) => {
   if (nodeElement?.dataset.id) {
     selectNode(nodeElement.dataset.id);
   }
-  handleButton(button as HTMLButtonElement);
+  handleButton(button);
 });
 
-detailsPanel.addEventListener("click", (event) => {
-  const button = (event.target as HTMLElement).closest("button");
-  if (!button) {
+for (const container of [detailsPanel, declarationsElement]) {
+  container.addEventListener("click", (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button");
+    if (!button) {
+      return;
+    }
+    event.preventDefault();
+    handleButton(button);
+  });
+}
+
+collapseAllButton.addEventListener("click", () => {
+  expanded.clear();
+  collapsedByUser.clear();
+  for (const node of byId.values()) {
+    if (node.children.length || node.expandable) {
+      collapsedByUser.add(node.id);
+    }
+  }
+  render();
+});
+
+filterInput.addEventListener("input", () => {
+  query = filterInput.value.trim().toLowerCase();
+  // Re-rendering is debounced so typing stays responsive on schemas with
+  // thousands of nodes.
+  if (renderDebounce !== undefined) {
+    window.clearTimeout(renderDebounce);
+  }
+  renderDebounce = window.setTimeout(render, 120);
+  if (searchDebounce !== undefined) {
+    window.clearTimeout(searchDebounce);
+  }
+  // Declaration search runs in the extension host, so it also finds nodes that
+  // have not been lazily expanded into the tree yet.
+  searchDebounce = window.setTimeout(() => {
+    if (query.length >= 2) {
+      vscode.postMessage({ type: "search", query });
+    } else {
+      renderDeclarations([]);
+    }
+  }, 200);
+});
+
+window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
+  const message = event.data;
+  if (message.type === "update") {
+    model = message.model;
+    byId.clear();
+    parentOf.clear();
+    for (const root of model.roots) {
+      indexSubtree(root);
+    }
+    loadingExpansions.clear();
+    render();
     return;
   }
-  event.preventDefault();
-  handleButton(button as HTMLButtonElement);
+  if (message.type === "expanded") {
+    applyExpansion(message.id, message.children);
+    return;
+  }
+  if (message.type === "searchResults") {
+    if (message.query === query) {
+      renderDeclarations(message.hits);
+    }
+    return;
+  }
+  if (message.type === "revealSource") {
+    revealSourceLine(message.uri, message.line);
+  }
 });
 
-filter.addEventListener("input", render);
-window.addEventListener("message", (event: MessageEvent<{ type: string; model?: Model; id?: string; children?: Node[] }>) => {
-  if (event.data.type === "update" && event.data.model) {
-    model = event.data.model;
-    render();
-  }
-  if (event.data.type === "expanded" && event.data.id && event.data.children) {
-    applyExpansion(event.data.id, event.data.children);
-  }
-});
 vscode.postMessage({ type: "ready" });

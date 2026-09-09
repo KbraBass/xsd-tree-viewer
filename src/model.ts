@@ -1,5 +1,3 @@
-import type * as vscode from "vscode";
-
 export type NodeKind =
   | "element"
   | "attribute"
@@ -10,7 +8,8 @@ export type NodeKind =
   | "sequence"
   | "choice"
   | "all"
-  | "any";
+  | "any"
+  | "anyAttribute";
 
 export interface SourceLocation {
   uri: string;
@@ -24,6 +23,15 @@ export interface CctsComponentInfo {
   definition?: string;
   cardinality?: string;
   objectClass?: string;
+  propertyTerm?: string;
+  representationTerm?: string;
+  dataType?: string;
+  examples?: string;
+}
+
+export interface WildcardInfo {
+  namespace?: string;
+  processContents?: string;
 }
 
 export interface SchemaNode {
@@ -35,6 +43,9 @@ export interface SchemaNode {
   minOccurs?: number;
   maxOccurs?: number | "unbounded";
   nillable?: boolean;
+  abstract?: boolean;
+  substitutionGroup?: string;
+  wildcard?: WildcardInfo;
   fixed?: string;
   default?: string;
   documentation?: string;
@@ -67,7 +78,7 @@ export interface ComponentDefinition {
 }
 
 export interface SchemaDocument {
-  uri: vscode.Uri;
+  uri: string;
   targetNamespace: string;
   prefixes: Record<string, string>;
   root: ParsedXmlNode;
@@ -75,6 +86,16 @@ export interface SchemaDocument {
   importNamespaces: string[];
   includes: string[];
   components: Map<string, ComponentDefinition>;
+  diagnostics: string[];
+}
+
+/** A schema declaration matched by a host-side search over every loaded document. */
+export interface SearchHit {
+  kind: NodeKind;
+  name: string;
+  namespace: string;
+  documentation?: string;
+  sourceLocation: SourceLocation;
 }
 
 export interface PreviewModel {
@@ -84,6 +105,7 @@ export interface PreviewModel {
   namespacePrefixes: Record<string, string>;
   warnings: string[];
   roots: SchemaNode[];
+  autoCollapseDepth: number;
 }
 
 export function componentKey(namespace: string, kind: NodeKind, name: string): string {
@@ -96,4 +118,12 @@ export function sourceLocation(uri: string, node: ParsedXmlNode): SourceLocation
     line: node.location.line,
     column: node.location.column,
   };
+}
+
+/** Last path segment of a URI, used for panel and preview titles. */
+export function uriBasename(uri: string): string {
+  const withoutQuery = uri.split(/[?#]/)[0];
+  const segments = withoutQuery.split("/").filter(Boolean);
+  const last = segments[segments.length - 1] ?? uri;
+  return decodeURIComponent(last);
 }

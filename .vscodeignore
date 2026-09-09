@@ -1,9 +1,11 @@
 .git
 .github
 node_modules
+out
 src
 test
+tsconfig*.json
 *.ts
 *.map
 esbuild.js
-tsconfig.json
+docs

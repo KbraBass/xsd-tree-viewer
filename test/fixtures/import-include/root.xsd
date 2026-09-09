@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:i="urn:example:imported"
+           targetNamespace="urn:example:root"
+           elementFormDefault="qualified">
+  <xs:include schemaLocation="included.xsd"/>
+  <xs:import namespace="urn:example:imported" schemaLocation="imported.xsd"/>
+  <xs:element name="Root">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="Local" type="IncludedType"/>
+        <xs:element name="Remote" type="i:ImportedType"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

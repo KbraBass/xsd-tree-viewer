@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="urn:example:imported"
+           elementFormDefault="qualified">
+  <xs:complexType name="ImportedType">
+    <xs:sequence>
+      <xs:element name="FromImport" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+</xs:schema>

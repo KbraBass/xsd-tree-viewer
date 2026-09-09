@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="urn:example:indirect"
+           elementFormDefault="qualified">
+  <xs:element name="Root" type="AType"/>
+  <xs:complexType name="AType">
+    <xs:sequence>
+      <xs:element name="ToB" type="BType"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="BType">
+    <xs:sequence>
+      <xs:element name="ToC" type="CType"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="CType">
+    <xs:sequence>
+      <xs:element name="BackToA" type="AType"/>
+    </xs:sequence>
+  </xs:complexType>
+</xs:schema>

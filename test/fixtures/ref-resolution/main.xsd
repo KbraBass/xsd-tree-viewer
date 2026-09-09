@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:t="urn:example:types"
+           targetNamespace="urn:example:main"
+           elementFormDefault="qualified">
+  <xs:import namespace="urn:example:types" schemaLocation="types.xsd"/>
+  <xs:element name="OrderId" type="xs:string">
+    <xs:annotation>
+      <xs:documentation>The order identifier.</xs:documentation>
+    </xs:annotation>
+  </xs:element>
+  <xs:element name="Order">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="OrderId"/>
+        <xs:element name="Customer" type="t:CustomerType"/>
+        <xs:element ref="Missing" minOccurs="0"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>
