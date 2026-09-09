@@ -3,7 +3,7 @@
   "displayName": "XSD Tree Viewer",
   "description": "Rich, navigable XML Schema previews for Visual Studio Code.",
   "icon": "images/icon.png",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "KbraBass",
   "license": "Apache-2.0",
   "repository": {
