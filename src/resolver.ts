@@ -87,6 +87,55 @@ function firstChild(node: ParsedXmlNode, name: string): ParsedXmlNode | undefine
   return node.children.find((child) => nodeLocalName(child) === name);
 }
 
+/**
+ * Combines a type's inherited content with what it declares itself.
+ *
+ * An `xs:extension` appends. An `xs:restriction` restates: a re-declared
+ * component replaces the inherited one of the same name rather than appearing
+ * twice. Attributes are always merged by name, since a type cannot carry two
+ * attributes with the same name under either kind of derivation.
+ */
+function mergeDerivedContent(
+  inherited: SchemaNode[],
+  own: SchemaNode[],
+  isRestriction: boolean,
+): SchemaNode[] {
+  const replaceable = (node: SchemaNode): boolean => Boolean(node.name)
+    && (isRestriction || node.kind === "attribute" || node.kind === "anyAttribute");
+  const keyOf = (node: SchemaNode): string => `${node.kind}|${node.name}`;
+  const overrides = new Map<string, SchemaNode>();
+  for (const node of own) {
+    if (replaceable(node)) {
+      overrides.set(keyOf(node), node);
+    }
+  }
+  if (overrides.size === 0) {
+    return [...inherited, ...own];
+  }
+  const consumed = new Set<string>();
+  // Overrides keep the inherited component's position, which is the order a
+  // reader of the base type expects.
+  const merged = inherited.map((node) => {
+    if (!replaceable(node)) {
+      return node;
+    }
+    const key = keyOf(node);
+    const override = overrides.get(key);
+    if (!override) {
+      return node;
+    }
+    consumed.add(key);
+    return override;
+  });
+  for (const node of own) {
+    if (replaceable(node) && consumed.has(keyOf(node)) && overrides.get(keyOf(node)) === node) {
+      continue;
+    }
+    merged.push(node);
+  }
+  return merged;
+}
+
 function normalizeType(type: string | undefined): string | undefined {
   return type?.trim() || undefined;
 }
@@ -633,7 +682,7 @@ export class SchemaResolver {
         node,
       )
       : [];
-    const output: SchemaNode[] = [...inherited];
+    const own: SchemaNode[] = [];
     for (const particle of childParticles(node)) {
       const branchTypes = new Map(expandedTypes);
       const particleKind = nodeLocalName(particle) as NodeKind;
@@ -642,7 +691,7 @@ export class SchemaResolver {
         if (state.remainingNodes > 0) {
           state.remainingNodes -= 1;
         }
-        output.push({
+        own.push({
           id: particleId,
           kind: particleKind,
           name: particleKind,
@@ -667,13 +716,13 @@ export class SchemaResolver {
       if (particleKind === "group" || particleKind === "attributeGroup") {
         const ref = particle.attributes.ref;
         const group = this.findComponent(document, particleKind, ref);
-        output.push(group
+        own.push(group
           ? this.expandComponent(group, depth + 1, typeStack, branchTypes, particleId, state, eagerLevels)
           : this.unresolvedNode(documentUri, particle, particleKind, ref));
         continue;
       }
       if (particleKind === "any" || particleKind === "anyAttribute") {
-        output.push(this.wildcardNode(documentUri, particle, particleKind, particleId));
+        own.push(this.wildcardNode(documentUri, particle, particleKind, particleId));
         continue;
       }
       if (particleKind === "attribute") {
@@ -705,7 +754,7 @@ export class SchemaResolver {
         }
         child.documentation = annotationText(particle) ?? child.documentation;
         child.ccts = this.cctsFor(particle) ?? child.ccts;
-        output.push(child);
+        own.push(child);
         continue;
       }
       const ref = particle.attributes.ref;
@@ -721,7 +770,7 @@ export class SchemaResolver {
             }
           : undefined;
       if (!component) {
-        output.push(this.unresolvedNode(documentUri, particle, "element", ref));
+        own.push(this.unresolvedNode(documentUri, particle, "element", ref));
         continue;
       }
       const child = this.expandComponent(
@@ -741,9 +790,13 @@ export class SchemaResolver {
       child.documentation = annotationText(particle) ?? child.documentation;
       child.ccts = this.cctsFor(particle) ?? child.ccts;
       child.nillable = particle.attributes.nillable === "true" || child.nillable;
-      output.push(child);
+      own.push(child);
     }
-    return output;
+    return mergeDerivedContent(
+      inherited,
+      own,
+      derivation !== undefined && nodeLocalName(derivation) === "restriction",
+    );
   }
 
   private wildcardNode(

@@ -13,9 +13,16 @@ rendering strategy, architecture, data model, testing corpus, and milestones.
 
 - **Preview panel** per document, opened from the editor title bar or the
   command palette, live-updating on edit (debounced) and on save.
-- **Rich rows**: name with namespace prefix, resolved type, cardinality
-  (styled differently for optional, required and repeatable), and
+- **Rich rows**: name with namespace prefix, resolved type, and
   `nillable` / `fixed` / `default` / `abstract` / `substitutionGroup` badges.
+- **Colour-coded cardinality**: one pill style per min/max combination
+  (required/optional crossed with single/repeatable), with a legend in the
+  toolbar and a tooltip spelling out the `minOccurs`/`maxOccurs` pair. All
+  combinations clear WCAG AA contrast in light and dark themes.
+- **Readable deep trees**: `+`/`-` expanders, one indent guide per level, and
+  alternating shading across siblings. Selecting a node emphasises the guide
+  holding its children and lifts the guides back to the root, so a deep
+  subtree reads as one group.
 - **Cross-file resolution** of `ref`, `type`, `xs:import`, `xs:include` and
   `xs:redefine`/`xs:override`. Unresolved references are badged, not hidden.
   Saving an imported schema refreshes every preview that depends on it.

@@ -275,3 +275,23 @@ test("a library schema with no global elements shows its types as roots", async 
   assert.equal(model.roots[0].kind, "complexType");
   assert.ok(findByName(model.roots, "Name"), "the type's content is expanded");
 });
+
+test("a restriction restates components instead of duplicating them", async () => {
+  const { model } = await buildFixture("derivation.xsd");
+  const restricted = root(model, "Restricted");
+  const attributes = flatten([restricted]).filter((node) => node.kind === "attribute");
+  assert.deepEqual(
+    attributes.map((node) => node.name),
+    ["schemeID", "schemeName", "schemeAgencyID"],
+    "re-declared attributes replace the inherited ones and keep their position",
+  );
+  const schemeName = attributes.find((node) => node.name === "schemeName");
+  assert.equal(schemeName?.type, "xs:normalizedString", "the restricting declaration wins");
+  assert.equal(schemeName?.minOccurs, 1, "use=required comes from the restriction");
+});
+
+test("an extension appends to the base content model", async () => {
+  const { model } = await buildFixture("derivation.xsd");
+  const extended = root(model, "Extended");
+  assert.deepEqual(names([extended]), ["Extended", "First", "Second"]);
+});

@@ -101,6 +101,13 @@ async function openPreview(
   return session;
 }
 
+async function commandDocument(resource?: vscode.Uri): Promise<vscode.TextDocument | undefined> {
+  if (resource) {
+    return vscode.workspace.openTextDocument(resource);
+  }
+  return vscode.window.activeTextEditor?.document;
+}
+
 /** The session to act on for preview-relative commands: focused panel, else the only one. */
 function activeSession(): PreviewSession | undefined {
   for (const session of sessions.values()) {
@@ -146,11 +153,13 @@ async function goToDefinition(): Promise<void> {
 
 export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
-    vscode.commands.registerCommand("xsdTreeViewer.openPreview", () =>
-      openPreview(context, vscode.window.activeTextEditor?.document, vscode.ViewColumn.Active),
+    vscode.commands.registerCommand("xsdTreeViewer.openPreview", (resource?: vscode.Uri) =>
+      commandDocument(resource).then((document) =>
+        openPreview(context, document, vscode.ViewColumn.Active)),
     ),
-    vscode.commands.registerCommand("xsdTreeViewer.openPreviewToSide", () =>
-      openPreview(context, vscode.window.activeTextEditor?.document, vscode.ViewColumn.Beside),
+    vscode.commands.registerCommand("xsdTreeViewer.openPreviewToSide", (resource?: vscode.Uri) =>
+      commandDocument(resource).then((document) =>
+        openPreview(context, document, vscode.ViewColumn.Beside)),
     ),
     vscode.commands.registerCommand("xsdTreeViewer.revealInPreview", () => revealInPreview(context)),
     vscode.commands.registerCommand("xsdTreeViewer.goToDefinition", () => goToDefinition()),

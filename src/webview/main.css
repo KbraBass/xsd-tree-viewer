@@ -1,4 +1,16 @@
-:root { color-scheme: light dark; }
+:root {
+  color-scheme: light dark;
+  /* Neutral grey overlays read correctly on both light and dark themes. */
+  --row-stripe: rgba(127, 127, 127, 0.06);
+  --selected-chip: rgba(127, 127, 127, 0.32);
+  --guide: var(--vscode-tree-indentGuidesStroke, rgba(127, 127, 127, 0.35));
+  --trail-guide: var(--vscode-descriptionForeground);
+  --choice-guide: var(--vscode-charts-orange, #cc8b3c);
+  --row-padding: 5px;
+  --row-line: 1.5em;
+  /* Kept in sync with the real header height by the renderer. */
+  --header-offset: 135px;
+}
 
 body {
   margin: 0;
@@ -43,7 +55,7 @@ h1 { margin: 0 0 6px; font-size: 1.35em; font-weight: 600; }
 
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 340px); gap: 24px; align-items: start; }
 .main-column { min-width: 0; }
-.tree { min-width: 0; padding-top: 16px; }
+.tree { min-width: 0; padding-top: 12px; }
 
 .declarations {
   margin: 16px 0 0;
@@ -57,7 +69,7 @@ h1 { margin: 0 0 6px; font-size: 1.35em; font-weight: 600; }
 
 .details-panel {
   position: sticky;
-  top: 101px;
+  top: calc(var(--header-offset) + 12px);
   min-height: 180px;
   margin-top: 16px;
   padding: 12px 0 12px 18px;
@@ -93,67 +105,218 @@ h1 { margin: 0 0 6px; font-size: 1.35em; font-weight: 600; }
   background: var(--vscode-button-background);
   border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
 }
-.copy-button:hover { background: var(--vscode-button-hoverBackground); text-decoration: none; }
+.copy-button:hover { background: var(--vscode-button-hoverBackground); }
 .source-section { position: relative; }
 .source-section .icon-button { position: absolute; top: 18px; right: 0; }
 
-.node-item { position: relative; margin-left: 14px; border-left: 1px solid var(--vscode-tree-indentGuidesStroke); }
-.node-item.root { margin-left: 0; border-left: 0; }
-.node-item.root > .node-children { padding-left: 24px; }
-.structure-group { min-width: 0; margin-left: 14px; border-left: 1px solid var(--vscode-tree-indentGuidesStroke); }
-.structure-group > .node-item { margin-left: 0; border-left: 0; }
-.node-item:not(.root) > summary, .node-item:not(.root).leaf { padding-left: 5px; }
+/* ---------- Tree ---------- */
 
-summary { position: relative; padding: 4px 0; border-radius: 3px; list-style: none; cursor: pointer; }
-summary::-webkit-details-marker { display: none; }
-summary::before {
-  content: "\203A";
-  position: absolute;
-  left: -19px;
-  top: 3px;
-  width: 14px;
-  color: var(--vscode-descriptionForeground);
-  font-size: 1.15em;
-  line-height: 1;
-  text-align: center;
-  transition: transform 100ms ease;
+/*
+ * One indent guide per level, drawn by `.node-children`, so highlighting the
+ * guide for a node's children is a single rule rather than a rule per child.
+ * `--indent-step` is margin + padding of that container.
+ */
+.node-children {
+  min-width: 0;
+  margin-left: 9px;
+  padding-left: 12px;
+  border-left: 1px solid var(--guide);
 }
-.node-item[open] > summary::before { transform: rotate(90deg); }
-.node-item.root > summary { padding-left: 24px; }
-.node-item.root > summary::before { left: 2px; }
-.structure-group > .node-item > summary::before { left: -19px; }
-summary:hover { background: var(--vscode-list-hoverBackground); }
-.selected > summary, .selected.leaf { color: var(--vscode-list-activeSelectionForeground); background: var(--vscode-list-activeSelectionBackground); }
-.node-item > summary:focus, .node-item.leaf:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
-.node-children { min-width: 0; }
 
-.row { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.node-item { position: relative; }
+.node-item > summary,
+.node-item.leaf {
+  position: relative;
+  padding: var(--row-padding) 6px var(--row-padding) 21px;
+  border-radius: 3px;
+  line-height: var(--row-line);
+  /* Keeps a revealed row clear of the sticky header. */
+  scroll-margin-top: calc(var(--header-offset) + 16px);
+}
+
+/* A transparent sequence is not a level of its own, so it adds no indent. */
+.structure-group { min-width: 0; }
+
+summary { list-style: none; cursor: pointer; }
+summary::-webkit-details-marker { display: none; }
+
+/* Expander: "+" closed, "−" open. */
+summary::before {
+  content: "+";
+  position: absolute;
+  left: 2px;
+  /* Anchored to the first text line, not the box centre: a row whose content
+     wraps would otherwise drop its marker into the gap between lines. */
+  top: calc(var(--row-padding) + (var(--row-line) - 14px) / 2);
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  color: var(--vscode-descriptionForeground);
+  border: 1px solid var(--guide);
+  border-radius: 3px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  line-height: 12px;
+  text-align: center;
+}
+.node-item[open] > summary::before { content: "\2212"; }
+summary:hover::before {
+  color: var(--vscode-foreground);
+  border-color: var(--vscode-focusBorder);
+}
+
+/* Alternating shade so sibling rows are easy to scan across. */
+.node-children > .node-item:nth-child(even) > summary,
+.node-children > .node-item.leaf:nth-child(even),
+.structure-group > .node-item:nth-child(even) > summary,
+.structure-group > .node-item.leaf:nth-child(even) { background: var(--row-stripe); }
+
+.node-item > summary:hover,
+.node-item.leaf:hover { background: var(--vscode-list-hoverBackground); }
+
+.selected > summary,
+.selected.leaf {
+  color: var(--vscode-list-activeSelectionForeground);
+  background: var(--vscode-list-activeSelectionBackground);
+}
+.selected > summary::before { color: inherit; border-color: currentColor; }
+/*
+ * Everything in a selected row takes the selection foreground. Per-kind
+ * colours (name, type, badges) would otherwise keep their own hue and can sit
+ * unreadably close to the selection background — dark blue on blue in light
+ * themes.
+ */
+.selected > :is(summary, .row) :is(.name, .type-name, .cardinality, .badge, .stub-note, .recursive, .repeat-badge, .unresolved, button) {
+  color: inherit;
+}
+.selected > :is(summary, .row) :is(.cardinality, .badge) {
+  background: var(--selected-chip);
+  border-color: transparent;
+}
+
+.node-item > summary:focus-visible,
+.node-item.leaf:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/*
+ * The guide holding the selected node's children is emphasised, and the guides
+ * along the path back to the root are lifted, so a subtree reads as one group.
+ * `box-shadow` thickens the line without changing layout.
+ */
+.trail > .node-children {
+  border-left-color: var(--trail-guide);
+  box-shadow: inset 1px 0 0 0 var(--trail-guide);
+}
+.selected > .node-children {
+  border-left-color: var(--vscode-focusBorder);
+  box-shadow: inset 1px 0 0 0 var(--vscode-focusBorder);
+}
+
+/* ---------- Row content ---------- */
+
+.row { display: inline-flex; gap: 7px; align-items: baseline; flex-wrap: wrap; }
 .name { color: var(--vscode-symbolIcon-variableForeground); font-weight: 600; }
-.attribute-name { color: var(--vscode-symbolIcon-propertyForeground); font-weight: 500; }
-.type-name { color: var(--vscode-symbolIcon-classForeground, var(--vscode-descriptionForeground)); font-size: 0.9em; }
-.cardinality, .badge {
+.kind-attribute > summary .name,
+.kind-attribute.leaf .name,
+.kind-anyAttribute.leaf .name {
+  color: var(--vscode-symbolIcon-propertyForeground);
+  font-weight: 500;
+}
+.kind-choice > summary .name,
+.kind-sequence > summary .name,
+.kind-all > summary .name,
+.kind-group > summary .name,
+.kind-attributeGroup > summary .name {
+  color: var(--vscode-descriptionForeground);
+  font-weight: 500;
+  text-transform: lowercase;
+}
+.kind-complexType > summary .name,
+.kind-simpleType > summary .name,
+.kind-complexType.leaf .name,
+.kind-simpleType.leaf .name { color: var(--vscode-symbolIcon-classForeground, var(--vscode-foreground)); }
+.type-name {
+  color: var(--vscode-symbolIcon-classForeground, var(--vscode-descriptionForeground));
+  font-size: 0.9em;
+  opacity: 0.85;
+}
+
+/* A choice is a real decision point, so its children get their own guide colour. */
+.kind-choice > .node-children { border-left-color: var(--choice-guide); border-left-style: dashed; }
+
+.badge {
   padding: 1px 5px;
   color: var(--vscode-textPreformat-foreground);
   background: var(--vscode-textCodeBlock-background);
   border-radius: 3px;
   font-size: 0.82em;
 }
-.cardinality.optional { opacity: 0.75; }
-.cardinality.repeatable { color: var(--vscode-charts-blue, var(--vscode-textLink-foreground)); }
-.cardinality.required { font-weight: 600; }
+
+/*
+ * Cardinality: one colour per min/max combination. The hue rides on the pill's
+ * tint and ring rather than its text, because a theme's chart colours are not
+ * guaranteed to contrast with the editor background at this text size.
+ */
+.cardinality {
+  padding: 1px 6px;
+  color: var(--vscode-foreground);
+  background: var(--chip-tint);
+  border: 1px solid var(--chip-ring);
+  border-radius: 9px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.78em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cardinality.req-one {
+  --chip-tint: rgba(70, 160, 90, 0.2);
+  --chip-ring: var(--vscode-charts-green, #3d8b40);
+  font-weight: 600;
+}
+.cardinality.req-many {
+  --chip-tint: rgba(200, 130, 50, 0.22);
+  --chip-ring: var(--vscode-charts-orange, #c07a2c);
+  font-weight: 600;
+}
+.cardinality.opt-one {
+  --chip-tint: transparent;
+  --chip-ring: var(--guide);
+  color: var(--vscode-descriptionForeground);
+}
+.cardinality.opt-many {
+  --chip-tint: rgba(70, 130, 200, 0.2);
+  --chip-ring: var(--vscode-charts-blue, #3b7fc4);
+}
+
 .documentation { margin: 0; color: var(--vscode-descriptionForeground); line-height: 1.45; overflow-wrap: anywhere; }
 
 button { padding: 0 4px; color: var(--vscode-textLink-foreground); background: transparent; border: 0; cursor: pointer; }
-button:hover { text-decoration: underline; }
-.icon-button { min-width: 20px; font-size: 1em; }
+.icon-button { min-width: 20px; border-radius: 3px; font-size: 1em; }
+/* Hover feedback without underlining, which read as a link on real buttons. */
+.icon-button:hover { color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground)); background: var(--row-stripe); }
+/* Scoped to its own row: a descendant selector would reveal every child's. */
 .source-link { opacity: 0; transition: opacity 100ms ease; }
-.row:hover .source-link, .selected .source-link, .source-link:focus { opacity: 1; }
+.row:hover .source-link,
+.selected > summary .source-link,
+.selected.leaf .source-link,
+.source-link:focus-visible { opacity: 1; }
 
 .repeat-badge, .recursive { color: var(--vscode-descriptionForeground); font-size: 0.85em; }
 .stub-note { color: var(--vscode-descriptionForeground); font-size: 0.85em; font-style: italic; }
 .unresolved { color: var(--vscode-editorError-foreground); }
 .empty { padding: 24px 0; color: var(--vscode-descriptionForeground); }
 .warning { padding: 8px 0; color: var(--vscode-editorWarning-foreground); }
+
+.legend { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; font-size: 0.85em; }
+.legend .cardinality { cursor: default; }
+.legend-label { color: var(--vscode-descriptionForeground); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+  .source-link { opacity: 1; }
+}
 
 @media (max-width: 760px) {
   body { padding: 0 12px 32px; }

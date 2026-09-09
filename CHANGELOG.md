@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [0.2.0] - 2026-09-09
 
 ### Fixed
+- An `xs:restriction` no longer duplicates the components it restates. Derived
+  declarations replace the inherited ones of the same name instead of being
+  appended, which had every UBL leaf showing `@schemeName` and
+  `@schemeAgencyID` twice. Attributes are merged by name under either kind of
+  derivation, since a type cannot carry two attributes with the same name.
+- The "go to source" arrow appeared on every descendant of the selected row,
+  because its reveal rule used a descendant selector.
+- Everything in a selected row now takes the selection foreground. Per-kind
+  colours were kept, which put dark-blue element names on a blue selection
+  background in light themes.
+- A row whose content wraps keeps its expander aligned to the first text line
+  rather than dropping it into the gap between lines.
+- The sticky detail panel no longer tucks under the header; both it and
+  scroll-into-view offsets follow the header's measured height.
 - Repeated-subtree and recursion placeholders no longer disappear from the
   tree. They were emitted as `complexType` nodes, which the renderer treated
   as an implementation detail and flattened away, so whole branches — and the
@@ -40,10 +54,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   cached parent used to short-circuit the reload walk.
 
 ### Added
+- Tree layout pass: `+`/`-` expanders in place of chevrons, roomier rows and a
+  wider indent step, one indent guide per level, and alternating shading
+  across sibling rows.
+- Selecting a node emphasises the indent guide holding its children and lifts
+  the guides along the path back to the root, so a deep subtree reads as one
+  group.
+- Cardinality is colour-coded by min/max combination — required/optional
+  crossed with single/repeatable — with a legend in the toolbar and a tooltip
+  spelling out each `minOccurs`/`maxOccurs` pair. The hue rides on the pill's
+  tint and ring rather than its text, because a theme's chart colours are not
+  guaranteed to contrast with the editor background at that text size; every
+  combination clears WCAG AA in both light and dark themes.
+- Rows carry their node kind as a class, so elements, attributes, types and
+  structure particles are styled distinctly, and an `xs:choice` gets a dashed
+  guide of its own to mark it as a decision point.
 - A unit-test suite (`npm test`) over synthetic fixtures covering simple
   schemas, nested types, ref/import/include/redefine resolution, direct and
-  indirect recursion, repeated-subtree collapsing, facets, CCTS annotations,
-  wildcards and malformed input.
+  indirect recursion, repeated-subtree collapsing, restriction/extension
+  derivation, facets, CCTS annotations, wildcards and malformed input.
 - Recursion and repeat placeholders expand on demand — one more level per
   click, with the guard reapplied — so no branch is ever a dead end.
 - Declaration search in the extension host, so the filter also finds
@@ -55,6 +84,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Facets cover `xs:list`, `xs:union`, and facets inherited from a restriction
   base; the CCTS table includes property term, representation term, data type
   and examples.
+- "Open Preview" is available from the explorer context menu on `.xsd` files,
+  and both preview commands accept a resource URI.
 - Saving an imported schema refreshes every preview that depends on it.
 - Changing a setting refreshes open previews.
 - `npm run watch` for incremental builds.
@@ -69,6 +100,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   than resetting per branch.
 - Webview styles moved to a bundled stylesheet, and the CSP no longer needs
   `style-src 'unsafe-inline'`. Nonces are random rather than `Date.now()`.
+- A transparent `xs:sequence` no longer adds a level of indentation, since it
+  renders no row of its own. An `xs:choice`, or a sequence with non-default
+  cardinality, still gets a row.
+- Buttons no longer underline on hover, which read as a link.
 - The webview shares its type definitions with the extension host instead of
   duplicating them.
 

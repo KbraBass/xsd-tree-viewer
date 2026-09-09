@@ -36,6 +36,19 @@ const parentOf = new Map<string, string>();
 /** Per-render memo of "this subtree contains a filter match". */
 const matchCache = new Map<string, boolean>();
 
+/**
+ * Publishes the sticky header's real height so the detail panel and
+ * scroll-into-view offsets follow it when the toolbar wraps.
+ */
+function syncHeaderOffset(): void {
+  const header = document.querySelector("header");
+  if (!header) {
+    return;
+  }
+  const height = Math.round(header.getBoundingClientRect().height);
+  document.documentElement.style.setProperty("--header-offset", `${height}px`);
+}
+
 const escapes: Record<string, string> = {
   "&": "&amp;",
   "<": "&lt;",
@@ -88,12 +101,28 @@ function cardinality(node: SchemaNode): string | undefined {
   return `[${node.minOccurs ?? 1}..${max}]`;
 }
 
+function isRepeatable(node: SchemaNode): boolean {
+  return node.maxOccurs === "unbounded"
+    || (typeof node.maxOccurs === "number" && node.maxOccurs > 1);
+}
+
+/** One of four buckets: required/optional crossed with single/repeatable. */
 function cardinalityClass(node: SchemaNode): string {
-  const max = node.maxOccurs;
-  if (max === "unbounded" || (typeof max === "number" && max > 1)) {
-    return "repeatable";
+  const required = (node.minOccurs ?? 1) > 0;
+  if (required) {
+    return isRepeatable(node) ? "req-many" : "req-one";
   }
-  return (node.minOccurs ?? 1) === 0 ? "optional" : "required";
+  return isRepeatable(node) ? "opt-many" : "opt-one";
+}
+
+function cardinalityTitle(node: SchemaNode): string {
+  const min = node.minOccurs ?? 1;
+  const max = node.maxOccurs === "unbounded" ? "unbounded" : node.maxOccurs ?? 1;
+  const shape = [
+    min > 0 ? "required" : "optional",
+    isRepeatable(node) ? "repeatable" : "single",
+  ].join(", ");
+  return `minOccurs=${min}, maxOccurs=${max} \u2014 ${shape}`;
 }
 
 function qualifiedName(node: SchemaNode): string {
@@ -273,7 +302,9 @@ function row(node: SchemaNode): string {
   const labels = [
     `<span class="name${node.kind === "attribute" || node.kind === "anyAttribute" ? " attribute-name" : ""}">${escape(qualifiedName(node))}</span>`,
     node.type && node.type !== node.name ? `<span class="type-name">${escape(node.type)}</span>` : "",
-    cardinality(node) ? `<span class="cardinality ${cardinalityClass(node)}">${escape(cardinality(node) ?? "")}</span>` : "",
+    cardinality(node)
+      ? `<span class="cardinality ${cardinalityClass(node)}" title="${escape(cardinalityTitle(node))}">${escape(cardinality(node) ?? "")}</span>`
+      : "",
     node.kind === "choice" ? `<span class="badge">choice</span>` : "",
     node.nillable ? `<span class="badge">nillable</span>` : "",
     node.abstract ? `<span class="badge">abstract</span>` : "",
@@ -313,15 +344,16 @@ function renderNode(node: SchemaNode, depth: number, root = false): string {
   const renderedChildren = node.children.filter((child) => matches(child));
   const hasChildren = renderedChildren.length > 0 || Boolean(node.expandable);
   const selected = selectedId === node.id ? " selected" : "";
+  const classes = `node-item kind-${node.kind}${root ? " root" : ""}${selected}`;
   if (!hasChildren) {
-    return `<div class="node-item${root ? " root" : ""} leaf${selected}" data-id="${escape(node.id)}" role="treeitem" tabindex="-1">${row(node)}</div>`;
+    return `<div class="${classes} leaf" data-id="${escape(node.id)}" role="treeitem" tabindex="-1">${row(node)}</div>`;
   }
   const open = query
     ? renderedChildren.length > 0
     : expanded.has(node.id) || (shouldAutoOpen(node, depth) && !collapsedByUser.has(node.id));
   const children = open ? renderedChildren.map((child) => renderNode(child, depth + 1)).join("") : "";
   const childMarkup = `<div class="node-children"${open ? ' data-rendered="true"' : ""}>${children}</div>`;
-  return `<details class="node-item${root ? " root" : ""}${selected}" data-id="${escape(node.id)}"${open ? " open" : ""}><summary role="treeitem" tabindex="-1" aria-expanded="${open}">${row(node)}</summary>${childMarkup}</details>`;
+  return `<details class="${classes}" data-id="${escape(node.id)}"${open ? " open" : ""}><summary role="treeitem" tabindex="-1" aria-expanded="${open}">${row(node)}</summary>${childMarkup}</details>`;
 }
 
 function focusableForNode(element: HTMLElement): HTMLElement {
@@ -401,6 +433,7 @@ function setNodeOpen(details: HTMLDetailsElement, open: boolean): void {
         .map((child) => renderNode(child, depthOf(id) + 1))
         .join("");
       children.dataset.rendered = "true";
+      updateAncestorTrail();
     }
   } else {
     expanded.delete(id);
@@ -443,6 +476,7 @@ function applyExpansion(id: string, children: SchemaNode[]): void {
       .map((child) => renderNode(child, depthOf(id) + 1))
       .join("");
     container.dataset.rendered = "true";
+    updateAncestorTrail();
   }
   updateTabStops();
 }
@@ -550,6 +584,7 @@ function render(): void {
     .join("");
   const roots = model.roots.map((node) => renderNode(node, 0, true)).join("");
   tree.innerHTML = `${warnings}${roots || '<div class="empty">No matching schema nodes.</div>'}`;
+  updateAncestorTrail();
   renderMatchCount();
   updateTabStops();
   renderDetails();
@@ -563,12 +598,34 @@ function render(): void {
   }
 }
 
+/**
+ * Marks the selected node's ancestors so their indent guides stand out,
+ * letting the reader trace a deep row back to its root. CSS handles the
+ * selected node's own children guide.
+ */
+function updateAncestorTrail(): void {
+  for (const element of tree.querySelectorAll<HTMLElement>(".trail")) {
+    element.classList.remove("trail");
+  }
+  const selected = selectedId ? elementForNode(selectedId) : undefined;
+  if (!selected) {
+    return;
+  }
+  // Only `.node-item` draws a guide; a transparent structure group has none.
+  let ancestor = selected.parentElement?.closest<HTMLElement>(".node-item");
+  while (ancestor && tree.contains(ancestor)) {
+    ancestor.classList.add("trail");
+    ancestor = ancestor.parentElement?.closest<HTMLElement>(".node-item");
+  }
+}
+
 function selectNode(id: string): void {
   selectedId = id;
   for (const element of tree.querySelectorAll<HTMLElement>(".selected")) {
     element.classList.remove("selected");
   }
   elementForNode(id)?.classList.add("selected");
+  updateAncestorTrail();
   focusedId = id;
   updateTabStops();
   renderDetails();
@@ -750,5 +807,11 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
     revealSourceLine(message.uri, message.line);
   }
 });
+
+syncHeaderOffset();
+const header = document.querySelector("header");
+if (header && typeof ResizeObserver !== "undefined") {
+  new ResizeObserver(syncHeaderOffset).observe(header);
+}
 
 vscode.postMessage({ type: "ready" });

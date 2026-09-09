@@ -171,6 +171,13 @@ export class PreviewPanel {
       <button id="collapse-all" class="text-button" type="button">Collapse all</button>
       <span id="match-count" class="match-count"></span>
     </div>
+    <div class="legend" aria-label="Cardinality legend">
+      <span class="legend-label">Cardinality</span>
+      <span class="cardinality req-one" title="Exactly one occurrence is required">[1..1]</span>
+      <span class="cardinality opt-one" title="At most one occurrence, optional">[0..1]</span>
+      <span class="cardinality req-many" title="At least one occurrence, repeatable">[1..*]</span>
+      <span class="cardinality opt-many" title="Any number of occurrences, optional">[0..*]</span>
+    </div>
   </header>
   <div class="layout">
     <div class="main-column">

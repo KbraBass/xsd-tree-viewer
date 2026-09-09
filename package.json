@@ -63,6 +63,13 @@
           "when": "resourceExtname == .xsd || resourceLangId == xml"
         }
       ],
+      "explorer/context": [
+        {
+          "command": "xsdTreeViewer.openPreview",
+          "when": "resourceExtname == .xsd",
+          "group": "navigation@50"
+        }
+      ],
       "commandPalette": [
         {
           "command": "xsdTreeViewer.openPreview",
