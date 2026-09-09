@@ -6,6 +6,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [0.2.0] - 2026-09-09
 
 ### Fixed
+- Keyboard navigation no longer stalls at a subtree that was expanded and then
+  re-collapsed. The reachability check stopped at the first collapsed
+  `<details>` ancestor, so a closed node's own row counted as reachable even
+  when an outer ancestor was closed too. A collapsed subtree keeps its markup,
+  so those hidden rows entered the arrow-key order, and focusing one silently
+  fails — leaving the cursor stuck. Every ancestor is now checked, and
+  collapsing a node brings the tab stop back out of it.
 - An `xs:restriction` no longer duplicates the components it restates. Derived
   declarations replace the inherited ones of the same name instead of being
   appended, which had every UBL leaf showing `@schemeName` and
@@ -69,6 +76,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Rows carry their node kind as a class, so elements, attributes, types and
   structure particles are styled distinctly, and an `xs:choice` gets a dashed
   guide of its own to mark it as a decision point.
+- `npm run test:webview`: a browser check that drives the real webview bundle,
+  expanding and re-collapsing nodes at random and asserting every visible row
+  stays reachable by keyboard. Needs `npx playwright install chromium`; it
+  skips cleanly when playwright is absent and is not part of `npm test`.
 - A unit-test suite (`npm test`) over synthetic fixtures covering simple
   schemas, nested types, ref/import/include/redefine resolution, direct and
   indirect recursion, repeated-subtree collapsing, restriction/extension
@@ -105,7 +116,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   cardinality, still gets a row.
 - Buttons no longer underline on hover, which read as a link.
 - The webview shares its type definitions with the extension host instead of
-  duplicating them.
+  duplicating them, and the preview's body markup lives in one `vscode`-free
+  module so the browser checks render the real page structure.
 
 ## [0.1.0] - 2026-09-09
 

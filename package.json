@@ -118,7 +118,8 @@
     "package": "npm run build && npm test && npx vsce package",
     "watch": "node esbuild.js --watch",
     "pretest": "tsc -p tsconfig.test.json",
-    "test": "node --test out/test/"
+    "test": "node --test out/test/",
+    "test:webview": "node test/webview/keyboard-navigation.mjs"
   },
   "dependencies": {
     "sax": "^1.4.1"

@@ -362,8 +362,8 @@ function focusableForNode(element: HTMLElement): HTMLElement {
     : element.querySelector<HTMLElement>(":scope > summary") ?? element;
 }
 
-function elementForNode(id: string): HTMLElement | undefined {
-  return tree.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`) ?? undefined;
+function elementForNode(id: string): HTMLElement | null {
+  return tree.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`);
 }
 
 function detailsForNode(id: string): HTMLDetailsElement | undefined {
@@ -371,15 +371,28 @@ function detailsForNode(id: string): HTMLDetailsElement | undefined {
   return element instanceof HTMLDetailsElement ? element : undefined;
 }
 
+/**
+ * A row is reachable only when no collapsed `<details>` sits between it and the
+ * tree root. A summary is exempt from its *own* details being closed, since a
+ * collapsed node's own row stays on screen.
+ *
+ * Every ancestor has to be checked: stopping at the first collapsed one
+ * reported a closed node's summary as reachable even when an outer ancestor
+ * was closed too, which put hidden rows into the keyboard order. Focusing one
+ * silently fails, so the arrow keys stalled at the collapsed subtree.
+ */
 function isVisibleTreeElement(element: HTMLElement): boolean {
+  const ownDetails = element.tagName.toLowerCase() === "summary"
+    ? element.parentElement
+    : undefined;
   let ancestor = element.parentElement;
   while (ancestor && ancestor !== tree) {
-    if (ancestor instanceof HTMLDetailsElement && !ancestor.open) {
-      return element.tagName.toLowerCase() === "summary" && element.parentElement === ancestor;
+    if (ancestor instanceof HTMLDetailsElement && !ancestor.open && ancestor !== ownDetails) {
+      return false;
     }
     ancestor = ancestor.parentElement;
   }
-  return element.getClientRects().length > 0;
+  return true;
 }
 
 function focusableNodes(): HTMLElement[] {
@@ -440,9 +453,17 @@ function setNodeOpen(details: HTMLDetailsElement, open: boolean): void {
     collapsedByUser.add(id);
     const summary = details.querySelector<HTMLElement>(":scope > summary");
     const active = document.activeElement;
-    if (summary && active instanceof HTMLElement && active !== summary && details.contains(active)) {
+    const focusWasInside = active instanceof HTMLElement && active !== summary && details.contains(active);
+    // The collapsed subtree keeps its markup, so the tab stop and the arrow-key
+    // cursor have to come back out to the row the reader just closed.
+    const cursorWasInside = focusedId !== undefined
+      && focusedId !== id
+      && details.contains(elementForNode(focusedId) ?? null);
+    if (summary && (focusWasInside || cursorWasInside)) {
       focusedId = id;
-      summary.focus();
+      if (focusWasInside) {
+        summary.focus();
+      }
     }
   }
   updateTabStops();

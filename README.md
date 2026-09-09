@@ -64,8 +64,15 @@ npm install
 npm run build      # typecheck + bundle extension, webview JS and CSS
 npm run watch      # incremental rebuilds
 npm test           # unit tests over test/fixtures
+npm run test:webview  # browser check of the webview (needs playwright)
 npm run package    # build, test, and produce a .vsix
 ```
+
+The renderer only exists in a DOM, so it is out of reach of the Node suite.
+`npm run test:webview` drives the real bundle in Chromium — install a browser
+with `npx playwright install chromium` first, or point
+`PLAYWRIGHT_CHROMIUM_PATH` at an existing build. It skips cleanly when
+playwright is not present.
 
 The parser and resolver have no `vscode` dependency — file access goes
 through the `SchemaFileSystem` port in [`src/schemaFileSystem.ts`](src/schemaFileSystem.ts) —
