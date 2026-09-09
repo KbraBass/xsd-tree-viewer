@@ -1,0 +1,113 @@
+{
+  "name": "xsd-tree-viewer",
+  "displayName": "XSD Tree Viewer",
+  "description": "Rich, navigable XML Schema previews for Visual Studio Code.",
+  "version": "0.1.0",
+  "publisher": "xsd-tree-viewer",
+  "license": "Apache-2.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "keywords": [
+    "xsd",
+    "xml schema",
+    "xml",
+    "ubl"
+  ],
+  "activationEvents": [
+    "onLanguage:xml"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "xsdTreeViewer.openPreview",
+        "title": "XSD Tree Viewer: Open Preview",
+        "icon": "$(preview)"
+      },
+      {
+        "command": "xsdTreeViewer.openPreviewToSide",
+        "title": "XSD Tree Viewer: Open Preview to the Side",
+        "icon": "$(preview)"
+      },
+      {
+        "command": "xsdTreeViewer.revealInPreview",
+        "title": "XSD Tree Viewer: Reveal in Preview"
+      },
+      {
+        "command": "xsdTreeViewer.goToDefinition",
+        "title": "XSD Tree Viewer: Go to Definition"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "xsdTreeViewer.openPreview",
+          "when": "resourceExtname == .xsd || resourceLangId == xml",
+          "group": "navigation@50"
+        },
+        {
+          "command": "xsdTreeViewer.openPreviewToSide",
+          "when": "resourceExtname == .xsd || resourceLangId == xml",
+          "group": "navigation@51"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "xsdTreeViewer.revealInPreview",
+          "when": "resourceExtname == .xsd || resourceLangId == xml"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "xsdTreeViewer.openPreview"
+        },
+        {
+          "command": "xsdTreeViewer.openPreviewToSide"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "XSD Tree Viewer",
+      "properties": {
+        "xsdTreeViewer.autoCollapseDepth": {
+          "type": "number",
+          "default": 3,
+          "minimum": 0,
+          "description": "Depth after which preview nodes are collapsed by default."
+        },
+        "xsdTreeViewer.collapseRepeatedSubtrees": {
+          "type": "boolean",
+          "default": true,
+          "description": "Collapse repeated type subtrees after their first expansion."
+        },
+        "xsdTreeViewer.parseCctsAnnotations": {
+          "type": "boolean",
+          "default": true,
+          "description": "Parse structured CCTS documentation used by UBL schemas."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
+    "compile": "tsc --noEmit && node esbuild.js",
+    "check": "tsc --noEmit",
+    "package": "npm run build && npx vsce package"
+  },
+  "dependencies": {
+    "sax": "^1.4.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/sax": "^1.2.7",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.2"
+  }
+}

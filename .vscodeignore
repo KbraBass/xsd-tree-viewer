@@ -1,0 +1,9 @@
+.git
+.github
+node_modules
+src
+test
+*.ts
+*.map
+esbuild.js
+tsconfig.json
