@@ -41,6 +41,7 @@ Marketplace-facing description lives in [`README.vsix.md`](README.vsix.md).
 
 - [`docs/SPEC.md`](docs/SPEC.md): architecture and behavior specification.
 - [`docs/PUBLISHING.md`](docs/PUBLISHING.md): GitHub and Marketplace release steps.
+- [`CHANGELOG.md`](CHANGELOG.md): concise first-public-release notes.
 
 ## Links
 
