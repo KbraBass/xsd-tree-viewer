@@ -8,6 +8,46 @@ Two separate things are called "publishing" here, and they are independent:
 
 You can do (1) without ever doing (2).
 
+## Automated release (the normal path)
+
+Releases are cut by the **Release** workflow
+([`.github/workflows/release.yml`](../.github/workflows/release.yml)) — the
+version bump, the `.vsix` build and the GitHub Release all happen on GitHub, so
+nothing depends on a local toolchain.
+
+1. Put the changes under the `## [Unreleased]` heading in
+   [`CHANGELOG.md`](../CHANGELOG.md) as you merge them. That section becomes
+   the release notes verbatim.
+2. **Actions → Release → Run workflow**, and choose:
+   - **bump** — `patch`, `minor` or `major` (default `patch`), or
+   - **version** — an exact version such as `0.3.0`, which overrides the bump
+   - **dry_run** — build and package only; nothing is bumped, tagged or
+     released, and the `.vsix` is attached to the workflow run as an artifact
+
+The workflow then, in order: installs and builds, runs the unit tests, applies
+the version bump, refuses to continue if the tag already exists, renames
+`## [Unreleased]` to `## [<version>] - <date>`, packages the `.vsix`, commits
+the bump with the dated changelog, pushes the `v<version>` tag, and creates a
+GitHub Release with the `.vsix` attached.
+
+The `.vsix` is therefore downloadable from the repository's **Releases** page,
+with no local build involved.
+
+Use **dry_run** first when you have changed anything about packaging — it
+exercises the whole pipeline and leaves no trace.
+
+### Enabling the Marketplace step
+
+The workflow's last step publishes to the Marketplace, and **skips itself while
+the `VSCE_PAT` secret is absent** — so releases work from day one and start
+publishing the moment you opt in. To enable it:
+
+1. Set `publisher` in `package.json` to a real publisher ID (see below).
+2. Add the PAT as a repository secret named `VSCE_PAT`
+   (**Settings → Secrets and variables → Actions**).
+
+Nothing else changes; the next release publishes.
+
 ## Before the first Marketplace publish
 
 Two things in `package.json` must be settled first.
@@ -60,8 +100,13 @@ Keep it out of `.vscodeignore` so it ships inside the `.vsix`.
    `--pat <token>` / set `VSCE_PAT` per invocation.
 
 Treat the token as a credential: never commit it, and prefer a short expiry.
+For the automated release, store it as the `VSCE_PAT` repository secret rather
+than on a developer machine.
 
-## Release checklist
+## Manual release (fallback)
+
+Only needed when the workflow cannot be used — for a local build, or to
+inspect an artifact before it exists as a release.
 
 ```sh
 # 1. Everything green
@@ -157,3 +202,6 @@ renders it as the extension's "Changelog" tab.
 | Extension installs but does nothing | `dist/` missing from the package — build before packaging |
 | `Cannot find module 'vscode'` at runtime | `vscode` must stay in esbuild's `external`, never bundled |
 | Relative README links 404 on the listing | `repository` field missing or wrong |
+| Release workflow: `tag already exists` | that version was released before; pick another |
+| Release notes say "No changelog entry found" | no `## [Unreleased]` section was present |
+| Marketplace step logs "VSCE_PAT is not set" | expected until you add the secret |

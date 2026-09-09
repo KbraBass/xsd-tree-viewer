@@ -12,7 +12,15 @@ dependencies; it works in VS Code Web and on virtual filesystems.
 ## Installing
 
 The extension is not on the Marketplace yet (see
-[`docs/PUBLISHING.md`](docs/PUBLISHING.md)). To install it from source:
+[`docs/PUBLISHING.md`](docs/PUBLISHING.md)). Every release attaches a
+ready-to-install `.vsix` to the
+[Releases page](https://github.com/KbraBass/xsd-tree-viewer/releases):
+
+```sh
+code --install-extension xsd-tree-viewer-<version>.vsix
+```
+
+To build it from source instead:
 
 ```sh
 git clone https://github.com/KbraBass/xsd-tree-viewer.git
@@ -117,7 +125,9 @@ sketched in §7 of the spec.
   architecture, data model, testing corpus, milestones.
 - [`docs/PUBLISHING.md`](docs/PUBLISHING.md) — releasing to the Marketplace and
   to GitHub, and what has to be set up first.
-- [`CHANGELOG.md`](CHANGELOG.md) — what changed in each version.
+- [`CHANGELOG.md`](CHANGELOG.md) — what changed in each version. Pending
+  changes go under `## [Unreleased]`; the release workflow turns that section
+  into the release notes.
 
 ## Contributing
 
@@ -125,7 +135,12 @@ Issues and pull requests are welcome at
 <https://github.com/KbraBass/xsd-tree-viewer>. Before opening a PR, please run
 `npm run build` and `npm test`; if you touched anything under `src/webview/`,
 run `npm run test:webview` too. New resolver behaviour should come with a
-fixture under `test/fixtures/` covering it.
+fixture under `test/fixtures/` covering it. CI runs the same checks, plus
+packaging, on every push and pull request.
+
+Releases are cut by the **Release** workflow from the Actions tab — it bumps
+the version, builds the `.vsix` and publishes a GitHub Release with it
+attached. See [`docs/PUBLISHING.md`](docs/PUBLISHING.md).
 
 ## Status
 

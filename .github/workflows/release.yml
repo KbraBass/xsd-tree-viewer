@@ -1,0 +1,161 @@
+name: Release
+
+# Cuts a release entirely on GitHub: bumps the version, packages the .vsix,
+# tags, and publishes a GitHub Release with the .vsix attached.
+#
+# Run it from the Actions tab. Use dry_run to rehearse: it builds and uploads
+# the .vsix as a workflow artifact without bumping, tagging or releasing.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Semver bump to apply'
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      version:
+        description: 'Exact version, e.g. 0.3.0 (overrides bump)'
+        type: string
+        required: false
+      dry_run:
+        description: 'Build and package only; do not bump, tag or release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck and bundle
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Resolve the version
+        id: version
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.version }}" ]; then
+            npm version "${{ inputs.version }}" --no-git-tag-version --allow-same-version
+          else
+            npm version "${{ inputs.bump }}" --no-git-tag-version
+          fi
+          version="$(node -p 'require("./package.json").version')"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing $version"
+
+      - name: Fail if the tag already exists
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify "refs/tags/${{ steps.version.outputs.tag }}" >/dev/null \
+            || git ls-remote --exit-code --tags origin "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "::error::${{ steps.version.outputs.tag }} already exists. Pick another version."
+            exit 1
+          fi
+
+      # The convention is a `## [Unreleased]` section in CHANGELOG.md; it is
+      # renamed to the version being released, and becomes the release notes.
+      - name: Date the changelog section
+        run: |
+          set -euo pipefail
+          heading="## [${{ steps.version.outputs.version }}] - $(date -u +%Y-%m-%d)"
+          if grep -q '^## \[Unreleased\]$' CHANGELOG.md; then
+            awk -v heading="$heading" '
+              !done && $0 == "## [Unreleased]" { print heading; done = 1; next }
+              { print }
+            ' CHANGELOG.md > CHANGELOG.next && mv CHANGELOG.next CHANGELOG.md
+          else
+            echo "::warning::No '## [Unreleased]' section found; CHANGELOG.md left as is."
+          fi
+
+      - name: Extract release notes
+        id: notes
+        run: |
+          set -euo pipefail
+          awk -v version="${{ steps.version.outputs.version }}" '
+            index($0, "## [" version "]") == 1 { capture = 1; next }
+            capture && /^## \[/ { exit }
+            capture { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "No changelog entry found for this version." > release-notes.md
+          fi
+          echo "--- release notes ---"
+          cat release-notes.md
+
+      - name: Package
+        id: package
+        run: |
+          set -euo pipefail
+          npx --yes @vscode/vsce@3 package --out "xsd-tree-viewer-${{ steps.version.outputs.version }}.vsix"
+          echo "vsix=xsd-tree-viewer-${{ steps.version.outputs.version }}.vsix" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the package as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xsd-tree-viewer-${{ steps.version.outputs.version }}
+          path: ${{ steps.package.outputs.vsix }}
+          if-no-files-found: error
+
+      - name: Commit, tag and push
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json package-lock.json CHANGELOG.md
+          git commit -m "Release version ${{ steps.version.outputs.version }}"
+          git tag -a "${{ steps.version.outputs.tag }}" -m "${{ steps.version.outputs.tag }}"
+          git push origin HEAD:${{ github.ref_name }} --follow-tags
+
+      - name: Publish the GitHub release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            "${{ steps.package.outputs.vsix }}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --notes-file release-notes.md
+
+      # Optional: only runs once a VSCE_PAT secret exists and `publisher` in
+      # package.json is a real Marketplace publisher. See docs/PUBLISHING.md.
+      - name: Publish to the Visual Studio Marketplace
+        if: ${{ !inputs.dry_run }}
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VSCE_PAT:-}" ]; then
+            echo "VSCE_PAT is not set; skipping the Marketplace publish."
+            exit 0
+          fi
+          npx --yes @vscode/vsce@3 publish --packagePath "${{ steps.package.outputs.vsix }}"
+
+      - name: Summary
+        run: |
+          {
+            echo "### xsd-tree-viewer ${{ steps.version.outputs.version }}"
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              echo "Dry run: packaged \`${{ steps.package.outputs.vsix }}\` as an artifact; nothing was bumped, tagged or released."
+            else
+              echo "Released [\`${{ steps.version.outputs.tag }}\`](${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ steps.version.outputs.tag }}) with \`${{ steps.package.outputs.vsix }}\` attached."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
