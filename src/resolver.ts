@@ -466,6 +466,7 @@ export class SchemaResolver {
           node.documentation = node.documentation ?? annotationText(simpleType.node);
           node.facets = this.facets(simpleType.node, this.documentFor(simpleType));
           node.ccts = node.ccts ?? this.cctsFor(simpleType.node);
+          this.applyTypeDetails(node, document, node.type);
         }
       }
       if (complexType) {
@@ -473,6 +474,7 @@ export class SchemaResolver {
         // that uses it, so it is attached even at a cycle stub.
         node.ccts = node.ccts ?? this.cctsFor(complexType.node);
         node.documentation = node.documentation ?? annotationText(complexType.node);
+        this.applyTypeDetails(node, document, node.type);
         const typeId = typeIdentity(complexType);
         if (typeStack.includes(typeId)) {
           node.recursion = {
@@ -519,6 +521,7 @@ export class SchemaResolver {
       || component.kind === "group"
       || component.kind === "attributeGroup"
     ) {
+      this.applyTypeDetails(node, document, component.name);
       if (eagerLevels <= 0 || !hasBudget || depth >= maxExpansionDepth) {
         node.expandable = true;
         node.childrenLoaded = false;
@@ -544,15 +547,18 @@ export class SchemaResolver {
       const inlineSimpleType = firstChild(component.node, "simpleType");
       if (inlineSimpleType) {
         node.facets = this.facets(inlineSimpleType, document);
+        this.applyTypeDetails(node, document, node.type);
       } else if (node.type) {
         const simpleType = this.findComponent(document, "simpleType", node.type);
         if (simpleType) {
           node.documentation = node.documentation ?? annotationText(simpleType.node);
           node.facets = this.facets(simpleType.node, this.documentFor(simpleType));
+          this.applyTypeDetails(node, document, node.type);
         }
       }
     } else if (component.kind === "simpleType") {
       node.facets = this.facets(component.node, document);
+      this.applyTypeDetails(node, document, component.name);
     }
 
     return node;
@@ -888,6 +894,69 @@ export class SchemaResolver {
       facets[key] = values.length === 1 ? values[0] : values;
     }
     return facets;
+  }
+
+  private applyTypeDetails(node: SchemaNode, document: SchemaDocument, typeName: string | undefined): void {
+    if (!typeName) {
+      return;
+    }
+    const details = this.typeDetails(typeName, document);
+    node.baseType = details.baseType;
+    node.typeLineage = details.typeLineage;
+    node.restrictions = details.restrictions;
+  }
+
+  private typeDetails(
+    typeName: string,
+    document: SchemaDocument,
+    visited = new Set<string>(),
+  ): Pick<SchemaNode, "baseType" | "typeLineage" | "restrictions"> {
+    const simpleType = this.findComponent(document, "simpleType", typeName);
+    const complexType = simpleType ? undefined : this.findComponent(document, "complexType", typeName);
+    const component = simpleType ?? complexType;
+    if (!component) {
+      return { typeLineage: [typeName] };
+    }
+    const componentId = `${component.kind}|${component.namespace}|${component.name}`;
+    if (visited.has(componentId)) {
+      return { typeLineage: [typeName] };
+    }
+    const nextVisited = new Set(visited).add(componentId);
+    const restriction = simpleType
+      ? firstChild(component.node, "restriction")
+      : firstChild(firstChild(component.node, "complexContent") ?? firstChild(component.node, "simpleContent") ?? component.node, "restriction");
+    const structuredContent = complexType
+      ? firstChild(component.node, "complexContent") ?? firstChild(component.node, "simpleContent")
+      : undefined;
+    const derivation = complexType
+      ? (structuredContent ? firstChild(structuredContent, "extension") ?? firstChild(structuredContent, "restriction") : undefined)
+      : restriction;
+    const baseType = normalizeType(derivation?.attributes.base);
+    const inherited = baseType
+      ? this.typeDetails(baseType, document, nextVisited)
+      : { typeLineage: [] as string[] };
+    const localFacets = restriction ? this.localRestrictionFacets(restriction) : {};
+    const restrictions = { ...(inherited.restrictions ?? {}), ...localFacets };
+    const typeLineage = [typeName, ...(inherited.typeLineage ?? (baseType ? [baseType] : []))];
+    return {
+      baseType,
+      typeLineage: typeLineage.length > 1 ? typeLineage : undefined,
+      restrictions: Object.keys(restrictions).length > 0 ? restrictions : undefined,
+    };
+  }
+
+  private localRestrictionFacets(restriction: ParsedXmlNode): Record<string, string | string[]> {
+    const grouped = new Map<string, string[]>();
+    for (const child of restriction.children) {
+      const value = child.attributes.value;
+      if (value !== undefined) {
+        const key = nodeLocalName(child);
+        grouped.set(key, [...(grouped.get(key) ?? []), value]);
+      }
+    }
+    return Object.fromEntries(
+      [...grouped.entries()].map(([key, values]) => [key, values.length === 1 ? values[0] : values]),
+    );
   }
 
   private documentFor(component: ComponentDefinition): SchemaDocument {

@@ -32,7 +32,7 @@ jobs:
       # Packaging is part of CI because `dist/` is git-ignored: a build that
       # compiles but cannot be packaged would otherwise only fail at release.
       - name: Package
-        run: npx --yes @vscode/vsce@3 package --out xsd-tree-viewer-ci.vsix
+        run: npx --yes @vscode/vsce@3 package --readme-path README.vsix.md --out xsd-tree-viewer-ci.vsix
 
       - name: List package contents
         run: npx --yes @vscode/vsce@3 ls

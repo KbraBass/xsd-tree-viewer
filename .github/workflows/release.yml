@@ -75,53 +75,11 @@ jobs:
             exit 1
           fi
 
-      # The convention is a `## [Unreleased]` section in CHANGELOG.md; it is
-      # renamed to the version being released, and becomes the release notes.
-      - name: Date the changelog section
-        run: |
-          set -euo pipefail
-          heading="## [${{ steps.version.outputs.version }}] - $(date -u +%Y-%m-%d)"
-          if grep -q '^## \[Unreleased\]$' CHANGELOG.md; then
-            # Date the section being released and open an empty one above it,
-            # so the next release has somewhere to collect entries.
-            awk -v heading="$heading" '
-              !done && $0 == "## [Unreleased]" {
-                print "## [Unreleased]"
-                print ""
-                print heading
-                done = 1
-                next
-              }
-              { print }
-            ' CHANGELOG.md > CHANGELOG.next && mv CHANGELOG.next CHANGELOG.md
-          else
-            echo "::warning::No '## [Unreleased]' section found; CHANGELOG.md left as is."
-          fi
-
-      # Written to the runner's temp dir, not the workspace: a notes file
-      # sitting next to package.json gets swept into the .vsix.
-      - name: Extract release notes
-        id: notes
-        run: |
-          set -euo pipefail
-          notes="${{ runner.temp }}/release-notes.md"
-          awk -v version="${{ steps.version.outputs.version }}" '
-            index($0, "## [" version "]") == 1 { capture = 1; next }
-            capture && /^## \[/ { exit }
-            capture { print }
-          ' CHANGELOG.md > "$notes"
-          if ! grep -q '[^[:space:]]' "$notes"; then
-            echo "No changelog entry found for this version." > "$notes"
-          fi
-          echo "notes=$notes" >> "$GITHUB_OUTPUT"
-          echo "--- release notes ---"
-          cat "$notes"
-
       - name: Package
         id: package
         run: |
           set -euo pipefail
-          npx --yes @vscode/vsce@3 package --out "xsd-tree-viewer-${{ steps.version.outputs.version }}.vsix"
+          npx --yes @vscode/vsce@3 package --readme-path README.vsix.md --out "xsd-tree-viewer-${{ steps.version.outputs.version }}.vsix"
           echo "vsix=xsd-tree-viewer-${{ steps.version.outputs.version }}.vsix" >> "$GITHUB_OUTPUT"
 
       - name: Upload the package as an artifact
@@ -137,7 +95,7 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add package.json package-lock.json CHANGELOG.md
+          git add package.json package-lock.json README.md README.vsix.md docs/PUBLISHING.md .github/workflows/release.yml .github/workflows/ci.yml .vscodeignore
           git commit -m "Release version ${{ steps.version.outputs.version }}"
           git tag -a "${{ steps.version.outputs.tag }}" -m "${{ steps.version.outputs.tag }}"
           git push origin HEAD:${{ github.ref_name }} --follow-tags
@@ -150,7 +108,7 @@ jobs:
           gh release create "${{ steps.version.outputs.tag }}" \
             "${{ steps.package.outputs.vsix }}" \
             --title "${{ steps.version.outputs.tag }}" \
-            --notes-file "${{ steps.notes.outputs.notes }}"
+            --generate-notes
 
       # Optional: only runs once a VSCE_PAT secret exists and `publisher` in
       # package.json is a real Marketplace publisher. See docs/PUBLISHING.md.

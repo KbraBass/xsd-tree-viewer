@@ -231,6 +231,8 @@ function renderDetails(): void {
     Kind: node.kind,
     Name: node.name,
     Type: node.type,
+    "Base type": node.baseType,
+    "Type lineage": node.typeLineage?.join(" -> "),
     Namespace: node.namespace,
     Cardinality: cardinality(node),
     Nillable: node.nillable ? "true" : undefined,
@@ -269,7 +271,13 @@ function renderDetails(): void {
   const cctsMarkup = cctsEntries.length
     ? `<section class="detail-section"><h3>CCTS</h3>${definitionList(cctsEntries, "detail-table")}</section>`
     : "";
+  const restrictionEntries: [string, string][] = Object.entries(node.restrictions ?? {})
+    .map(([key, value]) => [key, Array.isArray(value) ? value.join(", ") : value]);
+  const restrictionsMarkup = restrictionEntries.length
+    ? `<section class="detail-section"><h3>Restrictions</h3>${definitionList(restrictionEntries, "facet-list")}</section>`
+    : "";
   const facetEntries: [string, string][] = Object.entries(node.facets ?? {})
+    .filter(([key]) => key === "list" || key === "union")
     .map(([key, value]) => [key, Array.isArray(value) ? value.join(", ") : value]);
   const facetsMarkup = facetEntries.length
     ? `<section class="detail-section"><h3>Facets</h3>${definitionList(facetEntries, "facet-list")}</section>`
@@ -285,6 +293,7 @@ function renderDetails(): void {
     ${node.documentation ? `<section class="detail-section"><h3>Documentation</h3><p class="documentation">${escape(node.documentation)}</p></section>` : ""}
     ${attributeMarkup}
     ${cctsMarkup}
+    ${restrictionsMarkup}
     ${facetsMarkup}
     <section class="detail-section source-section"><h3>Source</h3><div class="source-location">${escape(node.sourceLocation.uri)}:${node.sourceLocation.line + 1}:${node.sourceLocation.column + 1}</div><button class="icon-button" data-action="source" data-uri="${escape(node.sourceLocation.uri)}" data-line="${node.sourceLocation.line}" data-column="${node.sourceLocation.column}" title="Go to source" aria-label="Go to source">&#8599;</button></section>`;
 }

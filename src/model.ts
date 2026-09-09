@@ -40,6 +40,8 @@ export interface SchemaNode {
   name?: string;
   namespace?: string;
   type?: string;
+  baseType?: string;
+  typeLineage?: string[];
   minOccurs?: number;
   maxOccurs?: number | "unbounded";
   nillable?: boolean;
@@ -51,6 +53,7 @@ export interface SchemaNode {
   documentation?: string;
   ccts?: CctsComponentInfo;
   facets?: Record<string, string | string[]>;
+  restrictions?: Record<string, string | string[]>;
   sourceLocation: SourceLocation;
   children: SchemaNode[];
   unresolvedRef?: string;

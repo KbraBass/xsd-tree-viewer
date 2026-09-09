@@ -13,4 +13,5 @@ docs
 # reach dist/.
 **/*.ts
 **/*.map
+README.md
 release-notes.md

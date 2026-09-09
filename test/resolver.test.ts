@@ -151,6 +151,10 @@ test("repeat collapsing can be switched off", async () => {
 test("collects facets, inherited restriction facets, lists and unions", async () => {
   const { model } = await buildFixture("facets.xsd");
   const status = root(model, "Status");
+  assert.equal(status.baseType, "StatusType");
+  assert.deepEqual(status.typeLineage, ["NarrowStatusType", "StatusType", "xs:string"]);
+  assert.equal(status.restrictions?.maxLength, "12");
+  assert.equal(status.restrictions?.pattern, "[a-z]+");
   assert.equal(status.facets?.base, "StatusType");
   assert.equal(status.facets?.pattern, "[a-z]+");
   assert.equal(status.facets?.maxLength, "12", "facets of the base type are merged in");
