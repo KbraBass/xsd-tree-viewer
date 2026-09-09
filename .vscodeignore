@@ -1,11 +1,15 @@
 .git
 .github
+.gitignore
+.vscodeignore
 node_modules
 out
 src
 test
 tsconfig*.json
-*.ts
-*.map
 esbuild.js
 docs
+# A single `*` does not cross `/` in these globs, so `**/` is required to
+# reach dist/.
+**/*.ts
+**/*.map
